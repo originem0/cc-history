@@ -6,9 +6,11 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -86,6 +88,7 @@ func main() {
 	// API routes (Go 1.22+ pattern syntax)
 	mux.HandleFunc("GET /api/projects", handleProjects)
 	mux.HandleFunc("GET /api/sessions/{id}/conversation", handleConversation)
+	mux.HandleFunc("GET /api/sessions/{id}/export", handleExport)
 	mux.HandleFunc("GET /api/sessions", handleSessions)
 	mux.HandleFunc("GET /api/search", handleSearch)
 	mux.HandleFunc("POST /api/sessions/{id}/resume", handleResume)
@@ -213,6 +216,72 @@ func handleConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, conv)
+}
+
+var unsafeFilenameRe = regexp.MustCompile(`[/\\:*?"<>|]`)
+
+func handleExport(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	conv, err := appStore.GetConversation(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Determine title: prefer user meta title, then session auto-title
+	title := "Untitled Session"
+	if m := metaStore.GetMeta(id); m.Title != "" {
+		title = m.Title
+	} else if sess, ok := appStore.GetSession(id); ok && sess.Title != "" {
+		title = sess.Title
+	}
+
+	// Build Markdown
+	var sb strings.Builder
+	sb.WriteString("# ")
+	sb.WriteString(title)
+	sb.WriteString("\n")
+
+	for _, msg := range conv.Messages {
+		// Collect only text blocks
+		var texts []string
+		for _, block := range msg.Content {
+			if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+				texts = append(texts, block.Text)
+			}
+		}
+		if len(texts) == 0 {
+			continue
+		}
+
+		role := "User"
+		if msg.Type == "assistant" {
+			role = "Claude"
+		}
+
+		sb.WriteString("\n````\n")
+		sb.WriteString(role)
+		sb.WriteString(":\n\n")
+		sb.WriteString(strings.Join(texts, "\n\n"))
+		sb.WriteString("\n````\n")
+	}
+
+	// Sanitize filename
+	safeName := unsafeFilenameRe.ReplaceAllString(title, "_")
+	safeName = strings.TrimSpace(safeName)
+	if len(safeName) > 80 {
+		safeName = safeName[:80]
+	}
+	if safeName == "" {
+		safeName = "export"
+	}
+
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf(`attachment; filename="export.md"; filename*=UTF-8''%s.md`,
+			url.PathEscape(safeName)))
+	w.Write([]byte(sb.String()))
 }
 
 func handleSearch(w http.ResponseWriter, r *http.Request) {

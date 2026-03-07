@@ -16,6 +16,7 @@
 - **可拖拽侧栏** — 拖动侧边栏右侧边缘调整宽度（200–500px），宽度自动保存
 - **浅色主题** — 护眼浅色配色，代码高亮使用 One Light 主题
 - **收藏与标签** — 会话可标星、添加自定义标签，支持按收藏过滤
+- **导出会话** — 一键导出对话为 Markdown 文件（仅保留 User/Claude 文本，过滤 tool_use/thinking 等中间过程）
 - **键盘导航** — 上下方向键快速切换会话
 - **配置管理** — 在 Web 界面中管理 Claude Code 的 Skills、Commands、MCP Servers、Plugins
 
@@ -101,6 +102,7 @@ cc-history/
 | GET | `/api/projects` | 项目列表 |
 | GET | `/api/sessions?project={dir}` | 会话列表（可按项目过滤） |
 | GET | `/api/sessions/{id}/conversation` | 完整对话 |
+| GET | `/api/sessions/{id}/export` | 导出对话为 Markdown 文件 |
 | GET | `/api/search?q={keyword}&limit=50` | 全文搜索 |
 | POST | `/api/sessions/{id}/resume` | 恢复会话 |
 | DELETE | `/api/sessions/{id}` | 软删除 |

@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import type { Conversation, SessionSummary } from '../../types'
 import { MessageBubble } from './MessageBubble'
+import { api } from '../../lib/api'
 
 interface ConversationViewProps {
   conversation: Conversation | null
@@ -36,6 +37,12 @@ const StarIcon = ({ filled, size = 14 }: { filled: boolean; size?: number }) => 
       strokeWidth="1.2"
       strokeLinejoin="round"
     />
+  </svg>
+)
+
+const DownloadIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+    <path d="M8 2v8m0 0l-3-3m3 3l3-3M3 12h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 )
 
@@ -165,6 +172,13 @@ export function ConversationView({ conversation, session, loading, error, onResu
             </div>
           </div>
           <div className="flex items-center gap-2 ml-4">
+            <button
+              onClick={() => api.exportSession(session.id).catch(console.error)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-text-secondary bg-black/[0.04] rounded-lg hover:bg-black/[0.08] border border-subtle hover:border-black/10"
+            >
+              <DownloadIcon />
+              Export
+            </button>
             <button
               onClick={onResume}
               className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-accent bg-accent/10 rounded-lg hover:bg-accent/20 border border-accent/20 hover:border-accent/30"

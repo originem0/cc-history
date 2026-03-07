@@ -37,6 +37,32 @@ export const api = {
     return fetchJSON(`${BASE}/sessions/${sessionId}`, { method: 'DELETE' })
   },
 
+  async exportSession(sessionId: string): Promise<void> {
+    const res = await fetch(`${BASE}/sessions/${sessionId}/export`)
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(text || `Export failed: ${res.status}`)
+    }
+    const blob = await res.blob()
+    const disposition = res.headers.get('Content-Disposition') || ''
+    const starMatch = disposition.match(/filename\*=UTF-8''(.+)/)
+    const plainMatch = disposition.match(/filename="(.+?)"/)
+    let filename = 'export.md'
+    if (starMatch) {
+      filename = decodeURIComponent(starMatch[1])
+    } else if (plainMatch) {
+      filename = plainMatch[1]
+    }
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
+
   reload(): Promise<{ status: string }> {
     return fetchJSON(`${BASE}/reload`, { method: 'POST' })
   },
