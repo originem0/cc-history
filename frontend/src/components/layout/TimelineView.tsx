@@ -34,15 +34,21 @@ export function TimelineView({ sessions, selectedId, focusedId, onSelect, onTogg
     groups.get(group)!.push(s)
   }
 
+  let isFirst = true
+
   return (
     <div className="py-1">
       {groupOrder.map(group => {
         const items = groups.get(group)
         if (!items || items.length === 0) return null
+        const showDivider = !isFirst
+        isFirst = false
         return (
           <div key={group} className="mb-1">
-            <div className="px-3 py-1.5 text-[10px] font-medium text-text-tertiary tracking-wider uppercase">
+            {showDivider && <div className="mx-3 my-1 border-t border-subtle" />}
+            <div className="px-3 py-1.5 text-[10px] font-semibold text-text-tertiary tracking-wider uppercase">
               {group}
+              <span className="ml-1.5 text-[9px] font-normal opacity-60">{items.length}</span>
             </div>
             {items.map(session => (
               <SessionItem
