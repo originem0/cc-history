@@ -13,6 +13,14 @@ const RefreshIcon = () => (
   </svg>
 )
 
+const ConfigIcon = ({ active }: { active: boolean }) => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+    <path d="M6.9 1.7a1 1 0 0 1 2.2 0l.15.9a.6.6 0 0 0 .46.46l.36.13a.6.6 0 0 0 .63-.1l.7-.6a1 1 0 0 1 1.55 1.56l-.6.7a.6.6 0 0 0-.1.62l.14.37a.6.6 0 0 0 .46.46l.9.15a1 1 0 0 1 0 2.2l-.9.15a.6.6 0 0 0-.46.46l-.13.36a.6.6 0 0 0 .1.63l.6.7a1 1 0 0 1-1.56 1.55l-.7-.6a.6.6 0 0 0-.62-.1l-.37.14a.6.6 0 0 0-.46.46l-.15.9a1 1 0 0 1-2.2 0l-.15-.9a.6.6 0 0 0-.46-.46l-.36-.13a.6.6 0 0 0-.63.1l-.7.6a1 1 0 0 1-1.55-1.56l.6-.7a.6.6 0 0 0 .1-.62l-.14-.37a.6.6 0 0 0-.46-.46l-.9-.15a1 1 0 0 1 0-2.2l.9-.15a.6.6 0 0 0 .46-.46l.13-.36a.6.6 0 0 0-.1-.63l-.6-.7A1 1 0 0 1 4.04 2.5l.7.6a.6.6 0 0 0 .62.1l.37-.14a.6.6 0 0 0 .46-.46l.15-.9Z"
+      stroke="currentColor" strokeWidth="1.2" fill={active ? 'currentColor' : 'none'}/>
+    <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" fill={active ? 'var(--bg-base)' : 'none'}/>
+  </svg>
+)
+
 interface HeaderProps {
   query: string
   onSearch: (q: string) => void
@@ -22,6 +30,8 @@ interface HeaderProps {
   onClearSearch: () => void
   onReload: () => void
   reloading: boolean
+  appView: 'sessions' | 'config'
+  onToggleConfig: () => void
 }
 
 export function Header({
@@ -33,6 +43,8 @@ export function Header({
   onClearSearch,
   onReload,
   reloading,
+  appView,
+  onToggleConfig,
 }: HeaderProps) {
   const showDropdown = query.trim().length > 0
 
@@ -116,6 +128,19 @@ export function Header({
         <span className={reloading ? 'animate-spin inline-block' : ''}>
           <RefreshIcon />
         </span>
+      </button>
+
+      {/* Config button */}
+      <button
+        onClick={onToggleConfig}
+        className={`p-2 rounded-lg ${
+          appView === 'config'
+            ? 'text-accent bg-accent/10'
+            : 'text-text-tertiary hover:text-accent hover:bg-accent/5'
+        }`}
+        title="Configuration"
+      >
+        <ConfigIcon active={appView === 'config'} />
       </button>
     </div>
   )

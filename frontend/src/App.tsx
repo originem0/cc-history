@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Sidebar, type SidebarTab } from './components/layout/Sidebar'
 import { Header } from './components/search/SearchHeader'
 import { ConversationView } from './components/conversation/ConversationView'
+import { ConfigView } from './components/config/ConfigView'
 import { useSessions } from './hooks/useSessions'
 import { useConversation } from './hooks/useConversation'
 import { useSearch } from './hooks/useSearch'
@@ -11,10 +12,15 @@ import { useResizable } from './hooks/useResizable'
 import { api } from './lib/api'
 import type { SessionSummary } from './types'
 
+type AppView = 'sessions' | 'config'
+
 function App() {
   const { projects, sessions, setSessions, loading, reload, refresh, removeSession } = useSessions()
   const { conversation, loading: convLoading, error: convError, loadConversation } = useConversation()
   const { results: searchResults, loading: searchLoading, query, search, clearSearch } = useSearch()
+
+  // Top-level view: sessions browser vs config panel
+  const [appView, setAppView] = useState<AppView>('sessions')
 
   // SSE: auto-refresh when backend detects file changes
   useSSE(refresh)
@@ -217,9 +223,14 @@ function App() {
         onClearSearch={clearSearch}
         onReload={handleReload}
         reloading={reloading}
+        appView={appView}
+        onToggleConfig={() => setAppView(v => v === 'config' ? 'sessions' : 'config')}
       />
 
       {/* Main content */}
+      {appView === 'config' ? (
+        <ConfigView />
+      ) : (
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
           projects={projects}
@@ -246,6 +257,7 @@ function App() {
           onRemoveTag={handleRemoveTag}
         />
       </div>
+      )}
 
       {/* Confirm dialog */}
       {confirmAction && (

@@ -43,3 +43,44 @@ export interface SearchResult {
   snippet: string
   timestamp: string
 }
+
+// --- Config types ---
+
+export interface SkillInfo {
+  name: string
+  description: string
+  dirName: string
+  hasExtras: boolean
+}
+
+export interface SkillDetail extends SkillInfo {
+  content: string
+}
+
+export interface CommandInfo {
+  name: string
+  description: string
+  fileName: string
+  isDir: boolean
+}
+
+export interface CommandDetail extends CommandInfo {
+  content: string
+}
+
+export interface MCPServer {
+  type: string
+  command?: string
+  args?: string[]
+  url?: string
+  env?: Record<string, string>
+}
+
+export interface PluginInfo {
+  key: string
+  name: string
+  marketplace: string
+  version: string
+  enabled: boolean
+  installedAt: string
+}

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"cc-history/internal/ccconfig"
 	"cc-history/internal/launcher"
 	"cc-history/internal/meta"
 	"cc-history/internal/scanner"
@@ -94,6 +95,26 @@ func main() {
 	mux.HandleFunc("POST /api/meta/{id}/tags", handleAddTag)
 	mux.HandleFunc("DELETE /api/meta/{id}/tags/{tag}", handleRemoveTag)
 	mux.HandleFunc("GET /api/tags", handleGetAllTags)
+
+	// Config API (skills, commands, MCP, plugins)
+	mux.HandleFunc("GET /api/config/skills", handleListSkills)
+	mux.HandleFunc("GET /api/config/skills/{name}", handleGetSkill)
+	mux.HandleFunc("POST /api/config/skills", handleCreateSkill)
+	mux.HandleFunc("PUT /api/config/skills/{name}", handleUpdateSkill)
+	mux.HandleFunc("DELETE /api/config/skills/{name}", handleDeleteSkill)
+
+	mux.HandleFunc("GET /api/config/commands", handleListCommands)
+	mux.HandleFunc("GET /api/config/commands/{name}", handleGetCommand)
+	mux.HandleFunc("POST /api/config/commands", handleCreateCommand)
+	mux.HandleFunc("PUT /api/config/commands/{name}", handleUpdateCommand)
+	mux.HandleFunc("DELETE /api/config/commands/{name}", handleDeleteCommand)
+
+	mux.HandleFunc("GET /api/config/mcp", handleListMCP)
+	mux.HandleFunc("PUT /api/config/mcp/{name}", handleSetMCP)
+	mux.HandleFunc("DELETE /api/config/mcp/{name}", handleDeleteMCP)
+
+	mux.HandleFunc("GET /api/config/plugins", handleListPlugins)
+	mux.HandleFunc("PUT /api/config/plugins/{key}/toggle", handleTogglePlugin)
 
 	// SSE endpoint
 	hub = newSSEHub()
@@ -315,6 +336,189 @@ func handleRemoveTag(w http.ResponseWriter, r *http.Request) {
 
 func handleGetAllTags(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, metaStore.GetAllTags())
+}
+
+// --- Config API handlers ---
+
+func configClaudeDir() string {
+	return scanner.DefaultClaudeDir()
+}
+
+func handleListSkills(w http.ResponseWriter, r *http.Request) {
+	skills, err := ccconfig.ListSkills(configClaudeDir())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, skills)
+}
+
+func handleGetSkill(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	skill, err := ccconfig.GetSkill(configClaudeDir(), name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, skill)
+}
+
+func handleCreateSkill(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name    string `json:"name"`
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		http.Error(w, "invalid JSON or empty name", http.StatusBadRequest)
+		return
+	}
+	if err := ccconfig.CreateSkill(configClaudeDir(), body.Name, body.Content); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "created"})
+}
+
+func handleUpdateSkill(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if err := ccconfig.UpdateSkill(configClaudeDir(), name, body.Content); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "updated"})
+}
+
+func handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := ccconfig.DeleteSkill(configClaudeDir(), name); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "deleted"})
+}
+
+func handleListCommands(w http.ResponseWriter, r *http.Request) {
+	commands, err := ccconfig.ListCommands(configClaudeDir())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, commands)
+}
+
+func handleGetCommand(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	cmd, err := ccconfig.GetCommand(configClaudeDir(), name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, cmd)
+}
+
+func handleCreateCommand(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name    string `json:"name"`
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		http.Error(w, "invalid JSON or empty name", http.StatusBadRequest)
+		return
+	}
+	if err := ccconfig.CreateCommand(configClaudeDir(), body.Name, body.Content); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "created"})
+}
+
+func handleUpdateCommand(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if err := ccconfig.UpdateCommand(configClaudeDir(), name, body.Content); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "updated"})
+}
+
+func handleDeleteCommand(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := ccconfig.DeleteCommand(configClaudeDir(), name); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "deleted"})
+}
+
+func handleListMCP(w http.ResponseWriter, r *http.Request) {
+	servers, err := ccconfig.ListMCPServers(configClaudeDir())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, servers)
+}
+
+func handleSetMCP(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var server ccconfig.MCPServer
+	if err := json.NewDecoder(r.Body).Decode(&server); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if err := ccconfig.SetMCPServer(configClaudeDir(), name, server); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func handleDeleteMCP(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := ccconfig.DeleteMCPServer(configClaudeDir(), name); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "deleted"})
+}
+
+func handleListPlugins(w http.ResponseWriter, r *http.Request) {
+	plugins, err := ccconfig.ListPlugins(configClaudeDir())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, plugins)
+}
+
+func handleTogglePlugin(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if err := ccconfig.TogglePlugin(configClaudeDir(), key, body.Enabled); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]bool{"enabled": body.Enabled})
 }
 
 func handleSSE(w http.ResponseWriter, r *http.Request) {

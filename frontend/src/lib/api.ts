@@ -1,4 +1,4 @@
-import type { ProjectInfo, SessionSummary, Conversation, SearchResult } from '../types'
+import type { ProjectInfo, SessionSummary, Conversation, SearchResult, SkillInfo, SkillDetail, CommandInfo, CommandDetail, MCPServer, PluginInfo } from '../types'
 
 const BASE = '/api'
 
@@ -65,5 +65,103 @@ export const api = {
 
   getTags(): Promise<string[]> {
     return fetchJSON(`${BASE}/tags`)
+  },
+
+  // --- Config: Skills ---
+
+  listSkills(): Promise<SkillInfo[]> {
+    return fetchJSON(`${BASE}/config/skills`)
+  },
+
+  getSkill(name: string): Promise<SkillDetail> {
+    return fetchJSON(`${BASE}/config/skills/${encodeURIComponent(name)}`)
+  },
+
+  createSkill(name: string, content: string): Promise<{ status: string }> {
+    return fetchJSON(`${BASE}/config/skills`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content }),
+    })
+  },
+
+  updateSkill(name: string, content: string): Promise<{ status: string }> {
+    return fetchJSON(`${BASE}/config/skills/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    })
+  },
+
+  deleteSkill(name: string): Promise<{ status: string }> {
+    return fetchJSON(`${BASE}/config/skills/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  // --- Config: Commands ---
+
+  listCommands(): Promise<CommandInfo[]> {
+    return fetchJSON(`${BASE}/config/commands`)
+  },
+
+  getCommand(name: string): Promise<CommandDetail> {
+    return fetchJSON(`${BASE}/config/commands/${encodeURIComponent(name)}`)
+  },
+
+  createCommand(name: string, content: string): Promise<{ status: string }> {
+    return fetchJSON(`${BASE}/config/commands`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content }),
+    })
+  },
+
+  updateCommand(name: string, content: string): Promise<{ status: string }> {
+    return fetchJSON(`${BASE}/config/commands/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    })
+  },
+
+  deleteCommand(name: string): Promise<{ status: string }> {
+    return fetchJSON(`${BASE}/config/commands/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  // --- Config: MCP Servers ---
+
+  listMCPServers(): Promise<Record<string, MCPServer>> {
+    return fetchJSON(`${BASE}/config/mcp`)
+  },
+
+  setMCPServer(name: string, server: MCPServer): Promise<{ status: string }> {
+    return fetchJSON(`${BASE}/config/mcp/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(server),
+    })
+  },
+
+  deleteMCPServer(name: string): Promise<{ status: string }> {
+    return fetchJSON(`${BASE}/config/mcp/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  // --- Config: Plugins ---
+
+  listPlugins(): Promise<PluginInfo[]> {
+    return fetchJSON(`${BASE}/config/plugins`)
+  },
+
+  togglePlugin(key: string, enabled: boolean): Promise<{ enabled: boolean }> {
+    return fetchJSON(`${BASE}/config/plugins/${encodeURIComponent(key)}/toggle`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    })
   },
 }
