@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import type { ConversationMessage, ContentBlock } from '../../types'
 import { MarkdownRenderer } from './MarkdownRenderer'
 
@@ -184,7 +184,7 @@ function hasVisibleContent(block: ContentBlock): boolean {
 
 // --- Main MessageBubble ---
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.type === 'user'
 
   // Skip rendering if no blocks have visible content
@@ -257,4 +257,4 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       </div>
     </div>
   )
-}
+})

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -138,14 +140,16 @@ func main() {
 	})
 	if w != nil {
 		w.Start()
-		defer w.Stop()
 	}
 
 	// Static files / SPA fallback
 	mux.HandleFunc("/", handleSPA)
 
-	port := findAvailablePort(3456)
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	// Find available port and keep the listener open (avoids TOCTOU race)
+	ln := findAvailableListener(3456)
+	addr := ln.Addr().String()
+
+	server := &http.Server{Handler: mux}
 
 	log.Printf("starting server at http://%s", addr)
 
@@ -155,9 +159,28 @@ func main() {
 		openBrowser(fmt.Sprintf("http://%s", addr))
 	}()
 
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("server error: %v", err)
+	// Graceful shutdown on SIGINT/SIGTERM
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	go func() {
+		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server error: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("shutting down...")
+
+	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server.Shutdown(shutCtx)
+
+	if w != nil {
+		w.Stop()
 	}
+	metaStore.Flush()
+	log.Println("shutdown complete")
 }
 
 func handleProjects(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +199,7 @@ type SessionResponse struct {
 	Messages  int      `json:"messages"`
 	Starred   bool     `json:"starred"`
 	Tags      []string `json:"tags"`
+	CWDExists bool     `json:"cwdExists"`
 }
 
 func handleSessions(w http.ResponseWriter, r *http.Request) {
@@ -203,8 +227,12 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 			Messages:  s.Messages,
 			Starred:   m.Starred,
 			Tags:      tags,
+			CWDExists: appStore.GetCWDExists(s.ID),
 		}
 	}
+
+	// Include data version header for efficient frontend change detection
+	w.Header().Set("X-Data-Version", strconv.FormatUint(appStore.Version(), 10))
 	writeJSON(w, resp)
 }
 
@@ -243,6 +271,21 @@ func handleExport(w http.ResponseWriter, r *http.Request) {
 	sb.WriteString(title)
 	sb.WriteString("\n")
 
+	// Scan all text content to find the longest backtick run,
+	// then use N+1 backticks as the fence to avoid conflicts.
+	maxBackticks := 3
+	for _, msg := range conv.Messages {
+		for _, block := range msg.Content {
+			if block.Type == "text" {
+				n := longestBacktickRun(block.Text)
+				if n >= maxBackticks {
+					maxBackticks = n + 1
+				}
+			}
+		}
+	}
+	fence := strings.Repeat("`", maxBackticks)
+
 	for _, msg := range conv.Messages {
 		// Collect only text blocks
 		var texts []string
@@ -260,11 +303,15 @@ func handleExport(w http.ResponseWriter, r *http.Request) {
 			role = "Claude"
 		}
 
-		sb.WriteString("\n````\n")
+		sb.WriteString("\n")
+		sb.WriteString(fence)
+		sb.WriteString("\n")
 		sb.WriteString(role)
 		sb.WriteString(":\n\n")
 		sb.WriteString(strings.Join(texts, "\n\n"))
-		sb.WriteString("\n````\n")
+		sb.WriteString("\n")
+		sb.WriteString(fence)
+		sb.WriteString("\n")
 	}
 
 	// Sanitize filename
@@ -282,6 +329,23 @@ func handleExport(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf(`attachment; filename="export.md"; filename*=UTF-8''%s.md`,
 			url.PathEscape(safeName)))
 	w.Write([]byte(sb.String()))
+}
+
+// longestBacktickRun returns the length of the longest consecutive
+// backtick sequence in s.
+func longestBacktickRun(s string) int {
+	max, cur := 0, 0
+	for _, c := range s {
+		if c == '`' {
+			cur++
+			if cur > max {
+				max = cur
+			}
+		} else {
+			cur = 0
+		}
+	}
+	return max
 }
 
 func handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -307,6 +371,12 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 	cwd := sess.CWD
 	if cwd == "" {
 		cwd = "."
+	}
+
+	// Check CWD exists before launching terminal
+	if info, err := os.Stat(cwd); err != nil || !info.IsDir() {
+		http.Error(w, fmt.Sprintf("working directory no longer exists: %s", cwd), http.StatusBadRequest)
+		return
 	}
 
 	if err := launcher.Resume(id, cwd); err != nil {
@@ -338,6 +408,7 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 	dstPath := filepath.Join(trashDir, filepath.Base(srcPath))
 
 	if err := os.Rename(srcPath, dstPath); err != nil {
+		log.Printf("delete: failed to move %s to %s: %v", srcPath, dstPath, err)
 		http.Error(w, "failed to move file to trash", http.StatusInternalServerError)
 		return
 	}
@@ -636,6 +707,10 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "event: connected\ndata: ok\n\n")
 	flusher.Flush()
 
+	// Heartbeat keeps the connection alive through proxies/load balancers
+	heartbeat := time.NewTicker(20 * time.Second)
+	defer heartbeat.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
@@ -645,6 +720,9 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			fmt.Fprintf(w, "event: %s\ndata: {}\n\n", event)
+			flusher.Flush()
+		case <-heartbeat.C:
+			fmt.Fprintf(w, ": heartbeat\n\n")
 			flusher.Flush()
 		}
 	}
@@ -662,22 +740,32 @@ func writeJSON(w http.ResponseWriter, data interface{}) {
 	}
 }
 
-// findAvailablePort tries ports starting from base, up to base+10.
-func findAvailablePort(base int) int {
+// findAvailableListener tries ports starting from base, up to base+10.
+// Returns the open listener directly, avoiding a TOCTOU race where another
+// process could grab the port between Listen and Serve.
+func findAvailableListener(base int) net.Listener {
 	for port := base; port <= base+10; port++ {
 		addr := fmt.Sprintf("127.0.0.1:%d", port)
 		ln, err := net.Listen("tcp", addr)
 		if err == nil {
-			ln.Close()
-			return port
+			return ln
 		}
 	}
-	return base // fallback, let it fail with a clear error
+	// Fallback: let it fail with a clear error
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", base))
+	if err != nil {
+		log.Fatalf("could not find available port: %v", err)
+	}
+	return ln
 }
 
 // openBrowser opens the default browser on Windows.
 func openBrowser(url string) {
-	// Use start command on Windows
 	cmd := exec.Command("cmd", "/c", "start", url)
-	cmd.Start()
+	if err := cmd.Start(); err != nil {
+		log.Printf("failed to open browser: %v", err)
+		return
+	}
+	// Reap the child process to avoid zombie/leaked handles
+	go cmd.Wait()
 }

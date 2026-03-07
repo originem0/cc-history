@@ -1,7 +1,9 @@
 package store
 
 import (
+	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"cc-history/internal/parser"
@@ -14,6 +16,7 @@ type SearchResult struct {
 	Project   string `json:"project"`
 	Snippet   string `json:"snippet"` // context around the match
 	Timestamp string `json:"timestamp"`
+	timestamp time.Time // unexported, for sorting
 }
 
 // Search performs full-text search across all sessions.
@@ -48,9 +51,15 @@ func (s *Store) Search(query string, limit int) []SearchResult {
 				Project:   sess.Project,
 				Snippet:   snippet,
 				Timestamp: sess.Timestamp.Format("2006-01-02 15:04"),
+				timestamp: sess.Timestamp,
 			})
 		}
 	}
+
+	// Sort by timestamp descending (most recent first)
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].timestamp.After(results[j].timestamp)
+	})
 
 	return results
 }

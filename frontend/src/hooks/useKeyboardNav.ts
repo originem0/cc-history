@@ -37,8 +37,8 @@ export function useKeyboardNav({ sessions, onSelect }: UseKeyboardNavOptions) {
       const nextSession = sessions[nextIndex]
       setFocusedId(nextSession.id)
 
-      // Auto-scroll into view
-      const el = document.querySelector(`[data-session-id="${nextSession.id}"]`)
+      // Auto-scroll into view (CSS.escape prevents selector injection)
+      const el = document.querySelector(`[data-session-id="${CSS.escape(nextSession.id)}"]`)
       el?.scrollIntoView({ block: 'nearest' })
     }
 

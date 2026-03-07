@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // rawLine is the intermediate structure for each JSONL line.
@@ -354,10 +355,11 @@ func extractTitle(text string) string {
 		text = text[:idx]
 	}
 
-	// Truncate to 100 chars
+	// Truncate to 100 runes (safe for multi-byte characters)
 	text = strings.TrimSpace(text)
-	if len(text) > 100 {
-		text = text[:100] + "..."
+	if utf8.RuneCountInString(text) > 100 {
+		runes := []rune(text)
+		text = string(runes[:100]) + "..."
 	}
 
 	return text

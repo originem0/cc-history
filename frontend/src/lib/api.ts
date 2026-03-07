@@ -11,14 +11,26 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json()
 }
 
+// fetchJSONWithVersion returns both parsed data and the X-Data-Version header.
+async function fetchJSONWithVersion<T>(url: string, init?: RequestInit): Promise<{ data: T; version: string | null }> {
+  const res = await fetch(url, init)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || `HTTP ${res.status}`)
+  }
+  const data: T = await res.json()
+  const version = res.headers.get('X-Data-Version')
+  return { data, version }
+}
+
 export const api = {
-  getProjects(): Promise<ProjectInfo[]> {
-    return fetchJSON(`${BASE}/projects`)
+  getProjects(): Promise<{ data: ProjectInfo[]; version: string | null }> {
+    return fetchJSONWithVersion(`${BASE}/projects`)
   },
 
-  getSessions(projectId?: string): Promise<SessionSummary[]> {
+  getSessions(projectId?: string): Promise<{ data: SessionSummary[]; version: string | null }> {
     const params = projectId ? `?project=${encodeURIComponent(projectId)}` : ''
-    return fetchJSON(`${BASE}/sessions${params}`)
+    return fetchJSONWithVersion(`${BASE}/sessions${params}`)
   },
 
   getConversation(sessionId: string): Promise<Conversation> {

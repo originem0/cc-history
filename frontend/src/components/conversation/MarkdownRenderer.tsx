@@ -1,3 +1,4 @@
+import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -6,7 +7,7 @@ interface MarkdownRendererProps {
   content: string
 }
 
-export function MarkdownRenderer({ content }: MarkdownRendererProps) {
+export const MarkdownRenderer = React.memo(function MarkdownRenderer({ content }: MarkdownRendererProps) {
   return (
     <div className="prose prose-sm max-w-none
       prose-headings:text-gray-900 prose-headings:mt-4 prose-headings:mb-2 prose-headings:font-semibold
@@ -60,4 +61,4 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
       </ReactMarkdown>
     </div>
   )
-}
+})

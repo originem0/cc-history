@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // --- Data Types ---
@@ -528,8 +529,38 @@ func DeleteCommand(claudeDir, name string) error {
 
 // --- MCP Servers ---
 
-// settingsMu protects read-modify-write cycles on settings.json
+// settingsMu protects read-modify-write cycles on settings.json.
+// Uses an OS-level lock file for inter-process safety.
 var settingsMu sync.Mutex
+
+// lockSettingsFile acquires an advisory lock via a .lock file using O_CREATE|O_EXCL.
+// Returns the lock file handle (to be passed to unlockSettingsFile) or an error.
+// Retries up to 10 times with 100ms backoff.
+func lockSettingsFile(claudeDir string) (*os.File, error) {
+	lockPath := filepath.Join(claudeDir, "settings.json.lock")
+	for i := 0; i < 10; i++ {
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err == nil {
+			return f, nil
+		}
+		// If the lock file is stale (older than 30s), remove and retry
+		if info, statErr := os.Stat(lockPath); statErr == nil {
+			if time.Since(info.ModTime()) > 30*time.Second {
+				os.Remove(lockPath)
+				continue
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return nil, fmt.Errorf("failed to acquire settings lock after retries")
+}
+
+// unlockSettingsFile releases the advisory lock by closing and removing the lock file.
+func unlockSettingsFile(f *os.File) {
+	name := f.Name()
+	f.Close()
+	os.Remove(name)
+}
 
 // readSettings reads and parses settings.json, returning the raw map.
 func readSettings(claudeDir string) (map[string]interface{}, error) {
@@ -636,6 +667,12 @@ func SetMCPServer(claudeDir, name string, server MCPServer) error {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
 
+	lockFile, err := lockSettingsFile(claudeDir)
+	if err != nil {
+		return err
+	}
+	defer unlockSettingsFile(lockFile)
+
 	settings, err := readSettings(claudeDir)
 	if err != nil {
 		return err
@@ -676,6 +713,12 @@ func DeleteMCPServer(claudeDir, name string) error {
 
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
+
+	lockFile, err := lockSettingsFile(claudeDir)
+	if err != nil {
+		return err
+	}
+	defer unlockSettingsFile(lockFile)
 
 	settings, err := readSettings(claudeDir)
 	if err != nil {
@@ -795,6 +838,12 @@ func TogglePlugin(claudeDir, pluginKey string, enabled bool) error {
 
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
+
+	lockFile, err := lockSettingsFile(claudeDir)
+	if err != nil {
+		return err
+	}
+	defer unlockSettingsFile(lockFile)
 
 	settings, err := readSettings(claudeDir)
 	if err != nil {

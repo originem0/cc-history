@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"io/fs"
+	"log"
 	"net/http"
 	"path"
 	"strings"
@@ -11,6 +12,17 @@ import (
 //go:embed frontend/dist/*
 var frontendFS embed.FS
 
+// distFS is computed once at init to avoid re-creating on every request.
+var distFS fs.FS
+
+func init() {
+	var err error
+	distFS, err = fs.Sub(frontendFS, "frontend/dist")
+	if err != nil {
+		log.Fatalf("failed to create dist sub-filesystem: %v", err)
+	}
+}
+
 func handleSPA(w http.ResponseWriter, r *http.Request) {
 	// Strip leading slash
 	urlPath := strings.TrimPrefix(r.URL.Path, "/")
@@ -18,13 +30,6 @@ func handleSPA(w http.ResponseWriter, r *http.Request) {
 	// Don't serve API routes here
 	if strings.HasPrefix(urlPath, "api/") {
 		http.NotFound(w, r)
-		return
-	}
-
-	// Get the embedded filesystem rooted at frontend/dist
-	distFS, err := fs.Sub(frontendFS, "frontend/dist")
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 

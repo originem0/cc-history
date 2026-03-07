@@ -2,18 +2,15 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../lib/api'
 import type { ProjectInfo, SessionSummary } from '../types'
 
-// Shallow-compare two arrays by serializing to JSON.
-// Avoids unnecessary React re-renders when SSE refresh returns identical data.
-function arrayChanged<T>(prev: T[], next: T[]): boolean {
-  if (prev.length !== next.length) return true
-  return JSON.stringify(prev) !== JSON.stringify(next)
-}
-
 export function useSessions() {
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [loading, setLoading] = useState(true)
+  // initialLoading is true only during the first fetch, not SSE refreshes
+  const [initialLoading, setInitialLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Track data version from backend to skip redundant state updates
+  const lastVersionRef = useRef<string | null>(null)
 
   // Refs for diffing in refresh() without needing them as deps
   const projectsRef = useRef(projects)
@@ -22,19 +19,20 @@ export function useSessions() {
   sessionsRef.current = sessions
 
   const load = useCallback(async () => {
-    setLoading(true)
+    setInitialLoading(true)
     setError(null)
     try {
       const [p, s] = await Promise.all([
         api.getProjects(),
         api.getSessions(),
       ])
-      setProjects(p)
-      setSessions(s)
+      setProjects(p.data)
+      setSessions(s.data)
+      if (s.version) lastVersionRef.current = s.version
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load')
     } finally {
-      setLoading(false)
+      setInitialLoading(false)
     }
   }, [])
 
@@ -47,15 +45,22 @@ export function useSessions() {
 
   // Re-fetch sessions without triggering backend reload.
   // Used by SSE — the watcher already reloaded the store.
-  // Only updates state if data actually changed, preventing UI flicker.
+  // Uses X-Data-Version header for efficient change detection.
   const refresh = useCallback(async () => {
     try {
       const [p, s] = await Promise.all([
         api.getProjects(),
         api.getSessions(),
       ])
-      if (arrayChanged(projectsRef.current, p)) setProjects(p)
-      if (arrayChanged(sessionsRef.current, s)) setSessions(s)
+
+      // If backend provides a version header, use it for comparison
+      if (s.version && s.version === lastVersionRef.current) {
+        return // data unchanged, skip state updates entirely
+      }
+      if (s.version) lastVersionRef.current = s.version
+
+      setProjects(p.data)
+      setSessions(s.data)
     } catch {
       // silent — SSE refresh is best-effort
     }
@@ -76,5 +81,5 @@ export function useSessions() {
     })
   }, [])
 
-  return { projects, sessions, setSessions, loading, error, reload, refresh, removeSession }
+  return { projects, sessions, setSessions, loading: initialLoading, error, reload, refresh, removeSession }
 }

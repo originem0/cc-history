@@ -133,13 +133,21 @@ cc-history/
 ## 设计决策
 
 - **内存存储** — 百量级会话，索引 < 20MB，无需数据库
-- **LRU 缓存 3 条对话** — 避免反复解析大 JSONL 文件
+- **增量加载** — 通过 mtime+size 跟踪文件变动，仅重新解析新增/修改的文件，跳过未变化的文件
+- **LRU 缓存 3 条对话** — 避免反复解析大 JSONL 文件，仅在对应文件变化时失效
 - **JSONL 逐行容错** — 跳过损坏行，不崩溃（Claude Code 可能正在写入）
 - **绑定 127.0.0.1** — 禁止局域网访问
-- **端口冲突自动重试** — 3456 被占用则尝试 3457-3466
-- **SPA fallback** — 有扩展名的路径 404，无扩展名的路径返回 index.html
+- **端口冲突自动重试** — 3456 被占用则尝试 3457-3466，使用 Listener 直接传递避免 TOCTOU 竞态
+- **SPA fallback** — 有扩展名的路径 404，无扩展名的路径返回 index.html；`fs.Sub` 在 `init()` 时计算一次
 - **软删除** — 文件移到 `~/.claude/trash/{timestamp}_{id}/`
 - **Symlink 支持** — Skills/Commands 目录中的符号链接自动解析（插件安装的 skill 通常是 symlink）
-- **SSE 智能刷新** — 文件变动推送后前端做 diff 比较，数据不变不触发 re-render，避免 UI 闪跳
-- **配置原子写入** — `settings.json` 写入时先写 `.tmp` 再 rename，防止半写状态
+- **SSE 智能刷新** — 后端通过 `X-Data-Version` 头标记数据版本，前端比较版本号，数据不变不触发 re-render，避免 UI 闪跳；SSE 连接每 20 秒发送心跳保活
+- **配置原子写入** — `settings.json` 写入时先写 `.tmp` 再 rename，防止半写状态；跨进程文件锁保护读改写操作
+- **元数据防抖写入** — 标星/标签/标题修改后延迟 500ms 合并写入，避免快速连续操作时频繁 I/O；提供 `Flush()` 方法用于优雅关闭
 - **路径穿越防护** — 配置 API 的 name 参数禁止 `..`、`/`、`\`
+- **命令注入防护** — 会话恢复前验证 session ID 格式（UUID hex 模式），阻止恶意输入
+- **优雅关闭** — 收到 SIGINT 后依次关闭 HTTP server、文件监控、刷新未写入元数据
+- **CWD 缓存** — 会话目录存在性检查在 `Load()` 时批量缓存，避免 API 请求中逐个 `os.Stat`
+- **React 性能** — `MessageBubble` 和 `MarkdownRenderer` 使用 `React.memo` 避免不必要的重渲染
+- **UTF-8 安全** — 标题截断使用 rune 计数，正确处理中文等多字节字符
+- **CSS.escape** — 键盘导航的选择器使用 `CSS.escape` 防止 ID 中特殊字符导致的注入

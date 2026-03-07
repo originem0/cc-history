@@ -2,6 +2,7 @@ package meta
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -24,10 +25,18 @@ type fileData struct {
 }
 
 // Store persists session metadata to ~/.claude/cc-history.json.
+// Writes are debounced: mutations mark the store dirty and schedule a
+// save after 500ms. If another mutation arrives in that window the timer
+// resets, batching rapid-fire changes into a single disk write.
 type Store struct {
 	mu       sync.RWMutex
 	filePath string
 	data     fileData
+
+	// Debounced write coordination
+	dirty    bool
+	timer    *time.Timer
+	saveMu   sync.Mutex // serializes actual disk writes
 }
 
 func NewStore(claudeDir string) *Store {
@@ -63,31 +72,74 @@ func (s *Store) Load() {
 	s.data = d
 }
 
-// save writes data atomically via temp file + rename.
-func (s *Store) save() error {
+// scheduleSave marks the store dirty and schedules a debounced save.
+// Must be called while s.mu is held (write-locked).
+func (s *Store) scheduleSave() {
+	s.dirty = true
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+	s.timer = time.AfterFunc(500*time.Millisecond, func() {
+		s.doSave()
+	})
+}
+
+// doSave performs the actual disk write if dirty.
+func (s *Store) doSave() {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+
+	s.mu.Lock()
+	if !s.dirty {
+		s.mu.Unlock()
+		return
+	}
+	s.dirty = false
 	raw, err := json.MarshalIndent(s.data, "", "  ")
+	s.mu.Unlock()
+
 	if err != nil {
-		return err
+		log.Printf("meta: marshal error: %v", err)
+		return
 	}
 
 	dir := filepath.Dir(s.filePath)
 	tmp, err := os.CreateTemp(dir, "cc-history-*.tmp")
 	if err != nil {
-		return err
+		log.Printf("meta: create temp error: %v", err)
+		return
 	}
 	tmpName := tmp.Name()
 
 	if _, err := tmp.Write(raw); err != nil {
 		tmp.Close()
 		os.Remove(tmpName)
-		return err
+		log.Printf("meta: write error: %v", err)
+		return
 	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpName)
-		return err
+		log.Printf("meta: close error: %v", err)
+		return
 	}
 
-	return os.Rename(tmpName, s.filePath)
+	if err := os.Rename(tmpName, s.filePath); err != nil {
+		os.Remove(tmpName)
+		log.Printf("meta: rename error: %v", err)
+	}
+}
+
+// Flush forces any pending debounced write to disk immediately.
+// Call during graceful shutdown.
+func (s *Store) Flush() {
+	s.mu.Lock()
+	if s.timer != nil {
+		s.timer.Stop()
+		s.timer = nil
+	}
+	s.mu.Unlock()
+
+	s.doSave()
 }
 
 // GetMeta returns metadata for a session. Returns nil if none exists.
@@ -124,7 +176,8 @@ func (s *Store) SetStarred(id string, starred bool) error {
 		delete(s.data.Sessions, id)
 	}
 
-	return s.save()
+	s.scheduleSave()
+	return nil
 }
 
 // SetTitle sets a custom title override for a session.
@@ -145,12 +198,14 @@ func (s *Store) SetTitle(id, title string) error {
 		if !m.Starred && len(m.Tags) == 0 {
 			delete(s.data.Sessions, id)
 		}
-		return s.save()
+		s.scheduleSave()
+		return nil
 	}
 
 	m := s.getOrCreate(id)
 	m.Title = title
-	return s.save()
+	s.scheduleSave()
+	return nil
 }
 
 // AddTag adds a tag to a session. No-op if already present.
@@ -165,7 +220,8 @@ func (s *Store) AddTag(id, tag string) error {
 		}
 	}
 	m.Tags = append(m.Tags, tag)
-	return s.save()
+	s.scheduleSave()
+	return nil
 }
 
 // RemoveTag removes a tag from a session.
@@ -191,7 +247,8 @@ func (s *Store) RemoveTag(id, tag string) error {
 		delete(s.data.Sessions, id)
 	}
 
-	return s.save()
+	s.scheduleSave()
+	return nil
 }
 
 // GetAllTags returns a deduplicated, sorted list of all tags in use.

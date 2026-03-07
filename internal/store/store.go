@@ -4,12 +4,21 @@ import (
 	"container/list"
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"cc-history/internal/parser"
 	"cc-history/internal/scanner"
 )
+
+// fileInfo tracks file metadata for incremental loading.
+type fileInfo struct {
+	modTime time.Time
+	size    int64
+}
 
 // Store holds all session metadata in memory and provides an LRU cache
 // for full conversation parsing.
@@ -18,11 +27,24 @@ type Store struct {
 	sessions map[string]*parser.SessionSummary // keyed by session ID
 	projects map[string]*parser.ProjectInfo    // keyed by encoded dir name
 
+	// fileInfos tracks file mtime+size for incremental loading.
+	// Keyed by absolute file path.
+	fileInfos map[string]fileInfo
+
+	// fileToSession maps file path -> session ID for removal tracking.
+	fileToSession map[string]string
+
+	// cwdExists caches os.Stat results for session CWDs, populated during Load().
+	cwdExists map[string]bool
+
+	// version is incremented on every Load() for change detection.
+	version atomic.Uint64
+
 	// LRU conversation cache (capacity: 3)
-	cacheMu  sync.Mutex
-	cacheMap map[string]*list.Element
+	cacheMu   sync.Mutex
+	cacheMap  map[string]*list.Element
 	cacheList *list.List
-	cacheCap int
+	cacheCap  int
 
 	claudeDir string
 }
@@ -34,29 +56,84 @@ type cacheEntry struct {
 
 func New(claudeDir string) *Store {
 	return &Store{
-		sessions:  make(map[string]*parser.SessionSummary),
-		projects:  make(map[string]*parser.ProjectInfo),
-		cacheMap:  make(map[string]*list.Element),
-		cacheList: list.New(),
-		cacheCap:  3,
-		claudeDir: claudeDir,
+		sessions:      make(map[string]*parser.SessionSummary),
+		projects:      make(map[string]*parser.ProjectInfo),
+		fileInfos:     make(map[string]fileInfo),
+		fileToSession: make(map[string]string),
+		cwdExists:     make(map[string]bool),
+		cacheMap:      make(map[string]*list.Element),
+		cacheList:     list.New(),
+		cacheCap:      3,
+		claudeDir:     claudeDir,
 	}
 }
 
-// Load scans the claude projects directory and parses all session summaries.
+// Version returns the current data version, incremented on each Load().
+func (s *Store) Version() uint64 {
+	return s.version.Load()
+}
+
+// Load scans the claude projects directory and incrementally parses
+// only changed or new session files. Removed files are cleaned up.
 func (s *Store) Load() error {
 	results, err := scanner.Scan(s.claudeDir)
 	if err != nil {
 		return fmt.Errorf("scanning projects: %w", err)
 	}
 
-	sessions := make(map[string]*parser.SessionSummary)
-	projects := make(map[string]*parser.ProjectInfo)
-
+	// Build a set of current file paths for detecting deletions
+	currentFiles := make(map[string]scanner.Result, len(results))
 	for _, r := range results {
-		summary, err := parser.ParseSummary(r.FilePath)
-		if err != nil {
-			log.Printf("skipping %s: %v", r.FilePath, err)
+		currentFiles[r.FilePath] = r
+	}
+
+	s.mu.Lock()
+
+	// Remove sessions whose files no longer exist
+	for filePath, sessID := range s.fileToSession {
+		if _, exists := currentFiles[filePath]; !exists {
+			if sess, ok := s.sessions[sessID]; ok {
+				if proj, ok := s.projects[sess.ProjectID]; ok {
+					proj.Sessions--
+					if proj.Sessions <= 0 {
+						delete(s.projects, sess.ProjectID)
+					}
+				}
+				delete(s.sessions, sessID)
+			}
+			delete(s.fileInfos, filePath)
+			delete(s.fileToSession, filePath)
+
+			// Invalidate cache for removed session
+			s.cacheMu.Lock()
+			if elem, ok := s.cacheMap[sessID]; ok {
+				s.cacheList.Remove(elem)
+				delete(s.cacheMap, sessID)
+			}
+			s.cacheMu.Unlock()
+		}
+	}
+
+	// Parse changed/new files
+	for filePath, r := range currentFiles {
+		fi, statErr := os.Stat(filePath)
+		if statErr != nil {
+			continue
+		}
+
+		// Check if file is unchanged
+		prev, known := s.fileInfos[filePath]
+		if known && prev.modTime.Equal(fi.ModTime()) && prev.size == fi.Size() {
+			continue // unchanged — skip re-parse
+		}
+
+		// Parse the file
+		s.mu.Unlock() // unlock during I/O-heavy parse
+		summary, parseErr := parser.ParseSummary(filePath)
+		s.mu.Lock()
+
+		if parseErr != nil {
+			log.Printf("skipping %s: %v", filePath, parseErr)
 			continue
 		}
 
@@ -65,30 +142,89 @@ func (s *Store) Load() error {
 			summary.Project = summary.CWD
 		}
 
-		sessions[summary.ID] = summary
+		// If this file previously mapped to a different session ID, clean up
+		if oldID, ok := s.fileToSession[filePath]; ok && oldID != summary.ID {
+			if oldSess, ok := s.sessions[oldID]; ok {
+				if proj, ok := s.projects[oldSess.ProjectID]; ok {
+					proj.Sessions--
+					if proj.Sessions <= 0 {
+						delete(s.projects, oldSess.ProjectID)
+					}
+				}
+				delete(s.sessions, oldID)
+			}
+		}
+
+		s.sessions[summary.ID] = summary
+		s.fileInfos[filePath] = fileInfo{modTime: fi.ModTime(), size: fi.Size()}
+		s.fileToSession[filePath] = summary.ID
 
 		// Build project info
-		if _, ok := projects[r.ProjectID]; !ok {
-			projects[r.ProjectID] = &parser.ProjectInfo{
+		if _, ok := s.projects[r.ProjectID]; !ok {
+			s.projects[r.ProjectID] = &parser.ProjectInfo{
 				Path:    summary.CWD,
 				DirName: r.ProjectID,
 			}
 		}
-		projects[r.ProjectID].Sessions++
+
+		// Invalidate cache for changed session
+		s.cacheMu.Lock()
+		if elem, ok := s.cacheMap[summary.ID]; ok {
+			s.cacheList.Remove(elem)
+			delete(s.cacheMap, summary.ID)
+		}
+		s.cacheMu.Unlock()
 	}
 
-	s.mu.Lock()
-	s.sessions = sessions
-	s.projects = projects
-	// Invalidate LRU cache — old entries may reference stale file paths
-	s.cacheMu.Lock()
-	s.cacheMap = make(map[string]*list.Element)
-	s.cacheList.Init()
-	s.cacheMu.Unlock()
+	// Rebuild project session counts
+	projectCounts := make(map[string]int)
+	for _, sess := range s.sessions {
+		projectCounts[sess.ProjectID]++
+	}
+	for pid, proj := range s.projects {
+		if count, ok := projectCounts[pid]; ok {
+			proj.Sessions = count
+		} else {
+			delete(s.projects, pid)
+		}
+	}
+
+	// Populate cwdExists cache
+	cwdExists := make(map[string]bool, len(s.sessions))
+	for _, sess := range s.sessions {
+		if sess.CWD == "" {
+			continue
+		}
+		// Avoid re-checking the same CWD path
+		if _, checked := cwdExists[sess.CWD]; checked {
+			continue
+		}
+		if info, err := os.Stat(sess.CWD); err == nil && info.IsDir() {
+			cwdExists[sess.CWD] = true
+		} else {
+			cwdExists[sess.CWD] = false
+		}
+	}
+	s.cwdExists = cwdExists
+
 	s.mu.Unlock()
 
-	log.Printf("loaded %d sessions across %d projects", len(sessions), len(projects))
+	s.version.Add(1)
+
+	log.Printf("loaded %d sessions across %d projects", len(s.sessions), len(s.projects))
 	return nil
+}
+
+// GetCWDExists returns whether a session's CWD directory exists,
+// using the cache populated during Load().
+func (s *Store) GetCWDExists(sessionID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok || sess.CWD == "" {
+		return false
+	}
+	return s.cwdExists[sess.CWD]
 }
 
 // GetProjects returns all projects sorted by path.
@@ -125,12 +261,16 @@ func (s *Store) GetSessions(projectID string) []parser.SessionSummary {
 	return result
 }
 
-// GetSession returns a single session by ID.
+// GetSession returns a copy of a single session by ID.
 func (s *Store) GetSession(id string) (*parser.SessionSummary, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	sess, ok := s.sessions[id]
-	return sess, ok
+	if !ok {
+		return nil, false
+	}
+	cp := *sess
+	return &cp, true
 }
 
 // GetConversation returns the full parsed conversation for a session,
@@ -200,6 +340,12 @@ func (s *Store) RemoveSession(id string) {
 		if proj.Sessions <= 0 {
 			delete(s.projects, sess.ProjectID)
 		}
+	}
+
+	// Clean up file tracking
+	if sess.FilePath != "" {
+		delete(s.fileInfos, sess.FilePath)
+		delete(s.fileToSession, sess.FilePath)
 	}
 
 	delete(s.sessions, id)
