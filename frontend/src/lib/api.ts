@@ -63,6 +63,14 @@ export const api = {
     })
   },
 
+  setTitle(sessionId: string, title: string): Promise<{ status: string }> {
+    return fetchJSON(`${BASE}/meta/${sessionId}/title`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    })
+  },
+
   getTags(): Promise<string[]> {
     return fetchJSON(`${BASE}/tags`)
   },

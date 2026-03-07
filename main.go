@@ -25,6 +25,9 @@ import (
 var appStore *store.Store
 var metaStore *meta.Store
 var hub *sseHub
+var claudeDir string
+
+const maxBodySize = 2 * 1024 * 1024 // 2MB
 
 // --- SSE Hub ---
 
@@ -65,7 +68,7 @@ func (h *sseHub) broadcast(event string) {
 }
 
 func main() {
-	claudeDir := scanner.DefaultClaudeDir()
+	claudeDir = scanner.DefaultClaudeDir()
 	if claudeDir == "" {
 		log.Fatal("cannot determine home directory")
 	}
@@ -92,6 +95,7 @@ func main() {
 	// Meta API (tags & starred)
 	mux.HandleFunc("GET /api/meta/{id}", handleGetMeta)
 	mux.HandleFunc("PUT /api/meta/{id}/star", handleSetStar)
+	mux.HandleFunc("PUT /api/meta/{id}/title", handleSetTitle)
 	mux.HandleFunc("POST /api/meta/{id}/tags", handleAddTag)
 	mux.HandleFunc("DELETE /api/meta/{id}/tags/{tag}", handleRemoveTag)
 	mux.HandleFunc("GET /api/tags", handleGetAllTags)
@@ -182,9 +186,13 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 		if tags == nil {
 			tags = []string{}
 		}
+		title := s.Title
+		if m.Title != "" {
+			title = m.Title
+		}
 		resp[i] = SessionResponse{
 			ID:        s.ID,
-			Title:     s.Title,
+			Title:     title,
 			Project:   s.Project,
 			ProjectID: s.ProjectID,
 			CWD:       s.CWD,
@@ -249,7 +257,6 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Soft delete: move JSONL file to trash directory
-	claudeDir := scanner.DefaultClaudeDir()
 	trashDir := filepath.Join(claudeDir, "trash",
 		fmt.Sprintf("%s_%s", time.Now().Format("20060102T150405"), id))
 
@@ -293,6 +300,7 @@ func handleGetMeta(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSetStar(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	id := r.PathValue("id")
 	var body struct {
 		Starred bool `json:"starred"`
@@ -308,7 +316,25 @@ func handleSetStar(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"starred": body.Starred})
 }
 
+func handleSetTitle(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
+	id := r.PathValue("id")
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if err := metaStore.SetTitle(id, body.Title); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
 func handleAddTag(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	id := r.PathValue("id")
 	var body struct {
 		Tag string `json:"tag"`
@@ -340,12 +366,8 @@ func handleGetAllTags(w http.ResponseWriter, r *http.Request) {
 
 // --- Config API handlers ---
 
-func configClaudeDir() string {
-	return scanner.DefaultClaudeDir()
-}
-
 func handleListSkills(w http.ResponseWriter, r *http.Request) {
-	skills, err := ccconfig.ListSkills(configClaudeDir())
+	skills, err := ccconfig.ListSkills(claudeDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -355,7 +377,7 @@ func handleListSkills(w http.ResponseWriter, r *http.Request) {
 
 func handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	skill, err := ccconfig.GetSkill(configClaudeDir(), name)
+	skill, err := ccconfig.GetSkill(claudeDir, name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -364,6 +386,7 @@ func handleGetSkill(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCreateSkill(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	var body struct {
 		Name    string `json:"name"`
 		Content string `json:"content"`
@@ -372,7 +395,7 @@ func handleCreateSkill(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON or empty name", http.StatusBadRequest)
 		return
 	}
-	if err := ccconfig.CreateSkill(configClaudeDir(), body.Name, body.Content); err != nil {
+	if err := ccconfig.CreateSkill(claudeDir, body.Name, body.Content); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -380,6 +403,7 @@ func handleCreateSkill(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleUpdateSkill(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	name := r.PathValue("name")
 	var body struct {
 		Content string `json:"content"`
@@ -388,7 +412,7 @@ func handleUpdateSkill(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if err := ccconfig.UpdateSkill(configClaudeDir(), name, body.Content); err != nil {
+	if err := ccconfig.UpdateSkill(claudeDir, name, body.Content); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -397,7 +421,7 @@ func handleUpdateSkill(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if err := ccconfig.DeleteSkill(configClaudeDir(), name); err != nil {
+	if err := ccconfig.DeleteSkill(claudeDir, name); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -405,7 +429,7 @@ func handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleListCommands(w http.ResponseWriter, r *http.Request) {
-	commands, err := ccconfig.ListCommands(configClaudeDir())
+	commands, err := ccconfig.ListCommands(claudeDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -415,7 +439,7 @@ func handleListCommands(w http.ResponseWriter, r *http.Request) {
 
 func handleGetCommand(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	cmd, err := ccconfig.GetCommand(configClaudeDir(), name)
+	cmd, err := ccconfig.GetCommand(claudeDir, name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -424,6 +448,7 @@ func handleGetCommand(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCreateCommand(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	var body struct {
 		Name    string `json:"name"`
 		Content string `json:"content"`
@@ -432,7 +457,7 @@ func handleCreateCommand(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON or empty name", http.StatusBadRequest)
 		return
 	}
-	if err := ccconfig.CreateCommand(configClaudeDir(), body.Name, body.Content); err != nil {
+	if err := ccconfig.CreateCommand(claudeDir, body.Name, body.Content); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -440,6 +465,7 @@ func handleCreateCommand(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleUpdateCommand(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	name := r.PathValue("name")
 	var body struct {
 		Content string `json:"content"`
@@ -448,7 +474,7 @@ func handleUpdateCommand(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if err := ccconfig.UpdateCommand(configClaudeDir(), name, body.Content); err != nil {
+	if err := ccconfig.UpdateCommand(claudeDir, name, body.Content); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -457,7 +483,7 @@ func handleUpdateCommand(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteCommand(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if err := ccconfig.DeleteCommand(configClaudeDir(), name); err != nil {
+	if err := ccconfig.DeleteCommand(claudeDir, name); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -465,7 +491,7 @@ func handleDeleteCommand(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleListMCP(w http.ResponseWriter, r *http.Request) {
-	servers, err := ccconfig.ListMCPServers(configClaudeDir())
+	servers, err := ccconfig.ListMCPServers(claudeDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -474,13 +500,14 @@ func handleListMCP(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSetMCP(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	name := r.PathValue("name")
 	var server ccconfig.MCPServer
 	if err := json.NewDecoder(r.Body).Decode(&server); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if err := ccconfig.SetMCPServer(configClaudeDir(), name, server); err != nil {
+	if err := ccconfig.SetMCPServer(claudeDir, name, server); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -489,7 +516,7 @@ func handleSetMCP(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteMCP(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if err := ccconfig.DeleteMCPServer(configClaudeDir(), name); err != nil {
+	if err := ccconfig.DeleteMCPServer(claudeDir, name); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -497,7 +524,7 @@ func handleDeleteMCP(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleListPlugins(w http.ResponseWriter, r *http.Request) {
-	plugins, err := ccconfig.ListPlugins(configClaudeDir())
+	plugins, err := ccconfig.ListPlugins(claudeDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -506,6 +533,7 @@ func handleListPlugins(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleTogglePlugin(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	key := r.PathValue("key")
 	var body struct {
 		Enabled bool `json:"enabled"`
@@ -514,7 +542,7 @@ func handleTogglePlugin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if err := ccconfig.TogglePlugin(configClaudeDir(), key, body.Enabled); err != nil {
+	if err := ccconfig.TogglePlugin(claudeDir, key, body.Enabled); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -551,6 +579,11 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// limitBody caps the request body size to prevent abuse.
+func limitBody(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 }
 
 func writeJSON(w http.ResponseWriter, data interface{}) {

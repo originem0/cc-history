@@ -65,14 +65,16 @@ export function useSessions() {
     // Use functional updates to avoid stale closure over `sessions`
     setSessions(prev => prev.filter(s => s.id !== id))
     setProjects(prev => {
-      // Recount using the filtered sessions
+      // Use ref to get current sessions, then exclude the removed one
+      const currentSessions = sessionsRef.current
       return prev.map(p => {
-        // We need current sessions minus the removed one
-        const count = sessions.filter(s => s.projectId === p.dirName && s.id !== id).length
+        const count = currentSessions.filter(
+          s => s.projectId === p.dirName && s.id !== id
+        ).length
         return { ...p, sessions: count }
       }).filter(p => p.sessions > 0)
     })
-  }, [sessions])
+  }, [])
 
   return { projects, sessions, setSessions, loading, error, reload, refresh, removeSession }
 }

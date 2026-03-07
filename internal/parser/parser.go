@@ -204,13 +204,14 @@ func parseContentBlocks(msgRaw json.RawMessage) []ContentBlock {
 	var blocks []ContentBlock
 	for _, rb := range rawBlocks {
 		var block struct {
-			Type    string          `json:"type"`
-			Text    string          `json:"text"`
-			Name    string          `json:"name"`
-			ID      string          `json:"id"`
-			Input   json.RawMessage `json:"input"`
-			Content json.RawMessage `json:"content"`
-			IsError bool            `json:"is_error"`
+			Type     string          `json:"type"`
+			Text     string          `json:"text"`
+			Thinking string          `json:"thinking"` // Claude API uses "thinking" field for thinking blocks
+			Name     string          `json:"name"`
+			ID       string          `json:"id"`
+			Input    json.RawMessage `json:"input"`
+			Content  json.RawMessage `json:"content"`
+			IsError  bool            `json:"is_error"`
 		}
 		if err := json.Unmarshal(rb, &block); err != nil {
 			continue
@@ -222,7 +223,12 @@ func parseContentBlocks(msgRaw json.RawMessage) []ContentBlock {
 		case "text":
 			cb.Text = block.Text
 		case "thinking":
-			cb.Text = block.Text
+			// Claude API stores thinking content in "thinking" field, fallback to "text"
+			if block.Thinking != "" {
+				cb.Text = block.Thinking
+			} else {
+				cb.Text = block.Text
+			}
 		case "tool_use":
 			cb.ToolName = block.Name
 			cb.ToolID = block.ID

@@ -80,6 +80,11 @@ func (s *Store) Load() error {
 	s.mu.Lock()
 	s.sessions = sessions
 	s.projects = projects
+	// Invalidate LRU cache — old entries may reference stale file paths
+	s.cacheMu.Lock()
+	s.cacheMap = make(map[string]*list.Element)
+	s.cacheList.Init()
+	s.cacheMu.Unlock()
 	s.mu.Unlock()
 
 	log.Printf("loaded %d sessions across %d projects", len(sessions), len(projects))

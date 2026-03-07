@@ -7,11 +7,13 @@ export function CommandsPanel() {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [saving, setSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
 
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
     if (selected) setEditContent(selected.content)
+    setDirty(false)
   }, [selected])
 
   const handleSave = async () => {
@@ -19,6 +21,7 @@ export function CommandsPanel() {
     setSaving(true)
     try {
       await update(selected.fileName.replace(/\.md$/, ''), editContent)
+      setDirty(false)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Save failed')
     } finally {
@@ -71,7 +74,10 @@ export function CommandsPanel() {
         {commands.map(c => (
           <button
             key={c.fileName}
-            onClick={() => select(c.isDir ? c.fileName : c.fileName.replace(/\.md$/, ''))}
+            onClick={() => {
+              if (dirty && !confirm('You have unsaved changes. Discard?')) return
+              select(c.isDir ? c.fileName : c.fileName.replace(/\.md$/, ''))
+            }}
             className={`w-full text-left px-3 py-2 text-sm border-b border-subtle/50 hover:bg-surface/60 ${
               selected?.fileName === c.fileName ? 'bg-accent/8 text-accent font-medium' : 'text-text-primary'
             }`}
@@ -149,7 +155,7 @@ export function CommandsPanel() {
             </div>
             <textarea
               value={editContent}
-              onChange={e => setEditContent(e.target.value)}
+              onChange={e => { setEditContent(e.target.value); setDirty(true) }}
               className="flex-1 p-4 text-sm font-mono bg-base text-text-primary outline-none resize-none"
               readOnly={selected.isDir}
               spellCheck={false}

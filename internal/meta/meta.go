@@ -5,15 +5,17 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
 
-// SessionMeta holds user-defined metadata for a session (stars, tags).
+// SessionMeta holds user-defined metadata for a session (stars, tags, custom title).
 type SessionMeta struct {
 	Starred   bool     `json:"starred,omitempty"`
 	Tags      []string `json:"tags,omitempty"`
 	StarredAt string   `json:"starredAt,omitempty"`
+	Title     string   `json:"title,omitempty"`
 }
 
 type fileData struct {
@@ -118,10 +120,36 @@ func (s *Store) SetStarred(id string, starred bool) error {
 	}
 
 	// Clean up empty entries
-	if !m.Starred && len(m.Tags) == 0 {
+	if !m.Starred && len(m.Tags) == 0 && m.Title == "" {
 		delete(s.data.Sessions, id)
 	}
 
+	return s.save()
+}
+
+// SetTitle sets a custom title override for a session.
+// Empty title removes the override, restoring the auto-extracted title.
+func (s *Store) SetTitle(id, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	title = strings.TrimSpace(title)
+
+	if title == "" {
+		// Remove override — clean up entry if nothing else is set
+		m, ok := s.data.Sessions[id]
+		if !ok {
+			return nil
+		}
+		m.Title = ""
+		if !m.Starred && len(m.Tags) == 0 {
+			delete(s.data.Sessions, id)
+		}
+		return s.save()
+	}
+
+	m := s.getOrCreate(id)
+	m.Title = title
 	return s.save()
 }
 
@@ -159,7 +187,7 @@ func (s *Store) RemoveTag(id, tag string) error {
 	m.Tags = filtered
 
 	// Clean up empty entries
-	if !m.Starred && len(m.Tags) == 0 {
+	if !m.Starred && len(m.Tags) == 0 && m.Title == "" {
 		delete(s.data.Sessions, id)
 	}
 

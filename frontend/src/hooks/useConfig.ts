@@ -37,7 +37,8 @@ export function useSkills() {
   const update = useCallback(async (name: string, content: string) => {
     await api.updateSkill(name, content)
     setSelected(prev => prev ? { ...prev, content } : prev)
-  }, [])
+    await load() // Refresh list to reflect frontmatter changes
+  }, [load])
 
   const remove = useCallback(async (name: string) => {
     await api.deleteSkill(name)
@@ -83,7 +84,8 @@ export function useCommands() {
   const update = useCallback(async (name: string, content: string) => {
     await api.updateCommand(name, content)
     setSelected(prev => prev ? { ...prev, content } : prev)
-  }, [])
+    await load() // Refresh list to reflect frontmatter changes
+  }, [load])
 
   const remove = useCallback(async (name: string) => {
     await api.deleteCommand(name)
@@ -146,8 +148,9 @@ export function usePlugins() {
     setPlugins(prev => prev.map(p => p.key === key ? { ...p, enabled } : p))
     try {
       await api.togglePlugin(key, enabled)
-    } catch {
+    } catch (e) {
       setPlugins(prev => prev.map(p => p.key === key ? { ...p, enabled: !enabled } : p))
+      setError(e instanceof Error ? e.message : 'Toggle failed')
     }
   }, [])
 

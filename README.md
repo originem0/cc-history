@@ -7,7 +7,8 @@
 ## 功能
 
 - **会话浏览** — 按项目分组展示所有 Claude Code 会话，侧边栏树形导航
-- **对话预览** — 完整渲染对话内容，支持 Markdown、代码高亮、折叠的 Thinking/Tool 块
+- **对话预览** — 完整渲染对话内容，支持 Markdown、代码高亮；Thinking/Tool 块单行内联摘要（点击展开）；长文本自动截断（展开全部按钮）
+- **会话标题编辑** — 双击标题即可修改，空标题恢复自动提取
 - **全文搜索** — 中英文混合搜索，Ctrl+K 快捷键，实时结果下拉
 - **恢复会话** — 一键打开终端执行 `claude --resume`（Windows Terminal 优先）
 - **删除会话** — 软删除到 `~/.claude/trash/`，可手动恢复
@@ -74,7 +75,7 @@ cc-history/
 │   ├── launcher/launcher.go       # 终端启动器
 │   ├── config/config.go           # 应用配置
 │   ├── ccconfig/ccconfig.go       # Claude Code 配置读写（Skills/Commands/MCP/Plugins）
-│   ├── meta/meta.go               # 会话元数据（标星、标签）
+│   ├── meta/meta.go               # 会话元数据（标星、标签、自定义标题）
 │   └── watcher/watcher.go         # 文件变动监控（fsnotify）
 └── frontend/src/
     ├── App.tsx                    # 主界面（sessions/config 视图切换）
@@ -106,6 +107,7 @@ cc-history/
 | POST | `/api/reload` | 重新扫描 |
 | GET | `/api/meta/{id}` | 获取会话元数据 |
 | PUT | `/api/meta/{id}/star` | 设置收藏状态 |
+| PUT | `/api/meta/{id}/title` | 设置自定义标题（空标题恢复默认） |
 | POST | `/api/meta/{id}/tags` | 添加标签 |
 | DELETE | `/api/meta/{id}/tags/{tag}` | 删除标签 |
 | GET | `/api/tags` | 获取所有标签 |

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // --- Data Types ---
@@ -53,13 +54,38 @@ type PluginInfo struct {
 
 // --- Validation ---
 
-// validateName rejects path traversal attempts.
+// validateName rejects path traversal, Windows reserved names, and unsafe characters.
 func validateName(name string) error {
 	if name == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
+	if len(name) > 200 {
+		return fmt.Errorf("name too long (max 200 characters)")
+	}
 	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		return fmt.Errorf("invalid name: must not contain '..', '/' or '\\'")
+	}
+	// Windows reserved names
+	upper := strings.ToUpper(strings.TrimRight(name, ". "))
+	reserved := map[string]bool{
+		"CON": true, "PRN": true, "AUX": true, "NUL": true,
+		"COM1": true, "COM2": true, "COM3": true, "COM4": true,
+		"COM5": true, "COM6": true, "COM7": true, "COM8": true, "COM9": true,
+		"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true,
+		"LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
+	}
+	if reserved[upper] {
+		return fmt.Errorf("invalid name: %q is a Windows reserved name", name)
+	}
+	// Reject characters invalid on Windows filesystems
+	for _, c := range name {
+		if c < 32 || strings.ContainsRune("<>:\"|?*", c) {
+			return fmt.Errorf("invalid name: contains illegal character %q", string(c))
+		}
+	}
+	// Reject trailing dots/spaces (Windows strips them silently)
+	if name != strings.TrimRight(name, ". ") {
+		return fmt.Errorf("invalid name: must not end with dots or spaces")
 	}
 	return nil
 }
@@ -287,10 +313,17 @@ func DeleteSkill(claudeDir, name string) error {
 	}
 
 	dir := filepath.Join(claudeDir, "skills", name)
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return fmt.Errorf("skill not found: %s", name)
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("skill not found: %s", name)
+		}
+		return err
 	}
-
+	// Symlink: only remove the link itself, not the target directory
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return os.Remove(dir)
+	}
 	return os.RemoveAll(dir)
 }
 
@@ -441,6 +474,11 @@ func CreateCommand(claudeDir, name, content string) error {
 	if _, err := os.Stat(mdPath); err == nil {
 		return fmt.Errorf("command already exists: %s", name)
 	}
+	// Also check for a same-name directory
+	dirPath := filepath.Join(cmdsDir, name)
+	if info, err := os.Stat(dirPath); err == nil && info.IsDir() {
+		return fmt.Errorf("command already exists as directory: %s", name)
+	}
 
 	return os.WriteFile(mdPath, []byte(content), 0644)
 }
@@ -471,9 +509,17 @@ func DeleteCommand(claudeDir, name string) error {
 		return os.Remove(mdPath)
 	}
 
-	// Try directory
+	// Try directory — use Lstat to detect symlinks
 	dirPath := filepath.Join(cmdsDir, name)
-	if info, err := os.Stat(dirPath); err == nil && info.IsDir() {
+	fi, err := os.Lstat(dirPath)
+	if err != nil {
+		return fmt.Errorf("command not found: %s", name)
+	}
+	// Symlink: only remove the link itself
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return os.Remove(dirPath)
+	}
+	if fi.IsDir() {
 		return os.RemoveAll(dirPath)
 	}
 
@@ -481,6 +527,9 @@ func DeleteCommand(claudeDir, name string) error {
 }
 
 // --- MCP Servers ---
+
+// settingsMu protects read-modify-write cycles on settings.json
+var settingsMu sync.Mutex
 
 // readSettings reads and parses settings.json, returning the raw map.
 func readSettings(claudeDir string) (map[string]interface{}, error) {
@@ -506,6 +555,7 @@ func writeSettings(claudeDir string, settings map[string]interface{}) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
+	data = append(data, '\n')
 
 	path := filepath.Join(claudeDir, "settings.json")
 	tmpPath := path + ".tmp"
@@ -583,6 +633,9 @@ func SetMCPServer(claudeDir, name string, server MCPServer) error {
 		return err
 	}
 
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+
 	settings, err := readSettings(claudeDir)
 	if err != nil {
 		return err
@@ -620,6 +673,9 @@ func DeleteMCPServer(claudeDir, name string) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
+
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
 
 	settings, err := readSettings(claudeDir)
 	if err != nil {
@@ -723,6 +779,23 @@ func ListPlugins(claudeDir string) ([]PluginInfo, error) {
 }
 
 func TogglePlugin(claudeDir, pluginKey string, enabled bool) error {
+	// Validate plugin key exists in installed plugins
+	pluginsPath := filepath.Join(claudeDir, "plugins", "installed_plugins.json")
+	data, err := os.ReadFile(pluginsPath)
+	if err != nil {
+		return fmt.Errorf("cannot read installed plugins: %w", err)
+	}
+	var file installedPluginsFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return fmt.Errorf("cannot parse installed plugins: %w", err)
+	}
+	if _, exists := file.Plugins[pluginKey]; !exists {
+		return fmt.Errorf("plugin not found: %s", pluginKey)
+	}
+
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+
 	settings, err := readSettings(claudeDir)
 	if err != nil {
 		return err

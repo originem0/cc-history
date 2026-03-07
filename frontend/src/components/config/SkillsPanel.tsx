@@ -7,11 +7,13 @@ export function SkillsPanel() {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [saving, setSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
 
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
     if (selected) setEditContent(selected.content)
+    setDirty(false)
   }, [selected])
 
   const handleSave = async () => {
@@ -19,6 +21,7 @@ export function SkillsPanel() {
     setSaving(true)
     try {
       await update(selected.dirName, editContent)
+      setDirty(false)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Save failed')
     } finally {
@@ -70,7 +73,10 @@ export function SkillsPanel() {
         {skills.map(s => (
           <button
             key={s.dirName}
-            onClick={() => select(s.dirName)}
+            onClick={() => {
+              if (dirty && !confirm('You have unsaved changes. Discard?')) return
+              select(s.dirName)
+            }}
             className={`w-full text-left px-3 py-2 text-sm border-b border-subtle/50 hover:bg-surface/60 ${
               selected?.dirName === s.dirName ? 'bg-accent/8 text-accent font-medium' : 'text-text-primary'
             }`}
@@ -144,7 +150,7 @@ export function SkillsPanel() {
             </div>
             <textarea
               value={editContent}
-              onChange={e => setEditContent(e.target.value)}
+              onChange={e => { setEditContent(e.target.value); setDirty(true) }}
               className="flex-1 p-4 text-sm font-mono bg-base text-text-primary outline-none resize-none"
               spellCheck={false}
             />

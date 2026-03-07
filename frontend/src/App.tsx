@@ -198,12 +198,28 @@ function App() {
     }
   }, [selectedSession, setSessions])
 
+  // Optimistic rename
+  const handleRenameSession = useCallback(async (sessionId: string, title: string) => {
+    setSessions(prev => prev.map(s =>
+      s.id === sessionId ? { ...s, title } : s
+    ))
+    if (selectedSession?.id === sessionId) {
+      setSelectedSession(prev => prev ? { ...prev, title } : prev)
+    }
+
+    try {
+      await api.setTitle(sessionId, title)
+    } catch {
+      refresh()
+    }
+  }, [selectedSession, setSessions, refresh])
+
   // Ctrl+K shortcut for search
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault()
-        const input = document.querySelector<HTMLInputElement>('input[type="text"]')
+        const input = document.getElementById('global-search') as HTMLInputElement | null
         input?.focus()
       }
     }
@@ -227,11 +243,11 @@ function App() {
         onToggleConfig={() => setAppView(v => v === 'config' ? 'sessions' : 'config')}
       />
 
-      {/* Main content */}
-      {appView === 'config' ? (
+      {/* Main content — both views always mounted, toggled via CSS to preserve state */}
+      <div style={{ display: appView === 'config' ? 'flex' : 'none' }} className="flex-1 flex flex-col overflow-hidden">
         <ConfigView />
-      ) : (
-      <div className="flex flex-1 overflow-hidden">
+      </div>
+      <div style={{ display: appView === 'sessions' ? 'flex' : 'none' }} className="flex flex-1 overflow-hidden">
         <Sidebar
           projects={projects}
           sessions={sessions}
@@ -255,9 +271,9 @@ function App() {
           onToggleStar={handleToggleStar}
           onAddTag={handleAddTag}
           onRemoveTag={handleRemoveTag}
+          onRenameSession={handleRenameSession}
         />
       </div>
-      )}
 
       {/* Confirm dialog */}
       {confirmAction && (

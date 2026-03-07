@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import type { Conversation, SessionSummary } from '../../types'
 import { MessageBubble } from './MessageBubble'
 
@@ -12,6 +12,7 @@ interface ConversationViewProps {
   onToggleStar: (sessionId: string) => void
   onAddTag: (sessionId: string, tag: string) => void
   onRemoveTag: (sessionId: string, tag: string) => void
+  onRenameSession: (sessionId: string, title: string) => void
 }
 
 const PlayIcon = () => (
@@ -38,12 +39,15 @@ const StarIcon = ({ filled, size = 14 }: { filled: boolean; size?: number }) => 
   </svg>
 )
 
-export function ConversationView({ conversation, session, loading, error, onResume, onDelete, onToggleStar, onAddTag, onRemoveTag }: ConversationViewProps) {
+export function ConversationView({ conversation, session, loading, error, onResume, onDelete, onToggleStar, onAddTag, onRemoveTag, onRenameSession }: ConversationViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [showTagInput, setShowTagInput] = useState(false)
   const [tagValue, setTagValue] = useState('')
   const tagInputRef = useRef<HTMLInputElement>(null)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleValue, setTitleValue] = useState('')
+  const titleInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (containerRef.current) {
@@ -56,6 +60,32 @@ export function ConversationView({ conversation, session, loading, error, onResu
       tagInputRef.current.focus()
     }
   }, [showTagInput])
+
+  useEffect(() => {
+    if (editingTitle && titleInputRef.current) {
+      titleInputRef.current.focus()
+      titleInputRef.current.select()
+    }
+  }, [editingTitle])
+
+  const handleTitleDoubleClick = useCallback(() => {
+    if (session) {
+      setTitleValue(session.title)
+      setEditingTitle(true)
+    }
+  }, [session])
+
+  const handleTitleSave = useCallback(() => {
+    const trimmed = titleValue.trim()
+    if (session && trimmed && trimmed !== session.title) {
+      onRenameSession(session.id, trimmed)
+    }
+    setEditingTitle(false)
+  }, [session, titleValue, onRenameSession])
+
+  const handleTitleCancel = useCallback(() => {
+    setEditingTitle(false)
+  }, [])
 
   const handleTagSubmit = () => {
     const tag = tagValue.trim()
@@ -104,7 +134,27 @@ export function ConversationView({ conversation, session, loading, error, onResu
               <StarIcon filled={session.starred} />
             </button>
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-text-primary truncate">{session.title}</h2>
+              {editingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  value={titleValue}
+                  onChange={e => setTitleValue(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleTitleSave()
+                    if (e.key === 'Escape') handleTitleCancel()
+                  }}
+                  onBlur={handleTitleSave}
+                  className="text-sm font-semibold text-text-primary bg-surface border border-accent/30 rounded px-1.5 py-0.5 outline-none w-full"
+                />
+              ) : (
+                <h2
+                  className="text-sm font-semibold text-text-primary truncate cursor-pointer hover:text-accent"
+                  onDoubleClick={handleTitleDoubleClick}
+                  title="Double-click to edit title"
+                >
+                  {session.title}
+                </h2>
+              )}
               <div className="text-[11px] text-text-tertiary mt-0.5 flex items-center gap-1.5 font-mono">
                 <span className="truncate">{session.cwd || session.project}</span>
                 <span className="text-subtle">/</span>

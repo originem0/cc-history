@@ -56,6 +56,7 @@ export function Header({
           <SearchIcon />
         </div>
         <input
+          id="global-search"
           type="text"
           value={query}
           onChange={e => onSearch(e.target.value)}
