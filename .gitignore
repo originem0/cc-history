@@ -1,0 +1,16 @@
+# Binary
+cc-history.exe
+
+# Frontend dependencies
+frontend/node_modules/
+
+# Build output (embedded at compile time)
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
