@@ -248,7 +248,7 @@ func (s *Store) GetSessions(projectID string) []parser.SessionSummary {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var result []parser.SessionSummary
+	result := make([]parser.SessionSummary, 0, len(s.sessions))
 	for _, sess := range s.sessions {
 		if projectID != "" && sess.ProjectID != projectID {
 			continue
