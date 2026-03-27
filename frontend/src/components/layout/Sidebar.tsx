@@ -34,12 +34,23 @@ interface ProjectGroupProps {
 function ProjectGroup({ project, sessions, selectedId, focusedId, onSelect, onToggleStar, defaultExpanded = false }: ProjectGroupProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
 
+  // Track whether the selected session is inside this group
+  const containsSelected = selectedId != null && sessions.some(s => s.id === selectedId)
+
   useEffect(() => {
     const saved = localStorage.getItem(`sidebar-expanded-${project.dirName}`)
     if (saved !== null) {
       setExpanded(saved === 'true')
     }
   }, [project.dirName])
+
+  // Auto-expand when a session inside this group gets selected
+  useEffect(() => {
+    if (containsSelected) {
+      setExpanded(true)
+      localStorage.setItem(`sidebar-expanded-${project.dirName}`, 'true')
+    }
+  }, [containsSelected, project.dirName])
 
   const toggle = () => {
     const next = !expanded
@@ -60,6 +71,9 @@ function ProjectGroup({ project, sessions, selectedId, focusedId, onSelect, onTo
         <ChevronIcon expanded={expanded} />
         <FolderIcon />
         <span className="truncate flex-1 text-left tracking-wide">{shortName}</span>
+        {!expanded && containsSelected && (
+          <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+        )}
         <span className="text-text-tertiary tabular-nums text-[10px] opacity-0 group-hover:opacity-100">{sessions.length}</span>
       </button>
 

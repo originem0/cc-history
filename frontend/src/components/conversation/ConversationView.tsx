@@ -164,6 +164,16 @@ export function ConversationView({ conversation, session, loading, error, onResu
               )}
               <div className="text-[11px] text-text-tertiary mt-0.5 flex items-center gap-1.5 font-mono">
                 <span className="truncate">{session.cwd || session.project}</span>
+                {!session.cwdExists && session.cwd && (
+                  <span className="inline-flex items-center gap-0.5 text-amber-600 font-sans text-[10px]" title="Working directory no longer exists">
+                    <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+                      <path d="M8 1.5L1 14h14L8 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                      <path d="M8 6v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                      <circle cx="8" cy="12" r="0.5" fill="currentColor"/>
+                    </svg>
+                    path missing
+                  </span>
+                )}
                 <span className="text-subtle">/</span>
                 <span className="whitespace-nowrap">{new Date(session.timestamp).toLocaleDateString()}</span>
                 <span className="text-subtle">/</span>
@@ -181,10 +191,22 @@ export function ConversationView({ conversation, session, loading, error, onResu
             </button>
             <button
               onClick={onResume}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-accent bg-accent/10 rounded-lg hover:bg-accent/20 border border-accent/20 hover:border-accent/30"
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg border ${
+                !session.cwdExists && session.cwd
+                  ? 'text-amber-600 bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/15'
+                  : 'text-accent bg-accent/10 border-accent/20 hover:bg-accent/20 hover:border-accent/30'
+              }`}
+              title={!session.cwdExists && session.cwd ? `CWD missing: ${session.cwd}` : 'Resume session'}
             >
               <PlayIcon />
               Resume
+              {!session.cwdExists && session.cwd && (
+                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="ml-0.5">
+                  <path d="M8 1.5L1 14h14L8 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                  <path d="M8 6v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                  <circle cx="8" cy="12" r="0.5" fill="currentColor"/>
+                </svg>
+              )}
             </button>
             <button
               onClick={onDelete}

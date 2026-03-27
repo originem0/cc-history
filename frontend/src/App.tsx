@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Sidebar, type SidebarTab } from './components/layout/Sidebar'
 import { Header } from './components/search/SearchHeader'
 import { ConversationView } from './components/conversation/ConversationView'
@@ -70,9 +70,11 @@ function App() {
     setFocusedId(null)
   }, [sidebarTab, setFocusedId])
 
-  // Restore last selected session from localStorage
+  // Restore last selected session from localStorage (initial load only)
+  const initialRestoreDone = useRef(false)
   useEffect(() => {
-    if (!loading && sessions.length > 0) {
+    if (!loading && sessions.length > 0 && !initialRestoreDone.current) {
+      initialRestoreDone.current = true
       const lastId = localStorage.getItem('cc-history-last-session')
       if (lastId) {
         const found = sessions.find(s => s.id === lastId)
@@ -83,6 +85,17 @@ function App() {
       }
     }
   }, [loading, sessions, loadConversation])
+
+  // Keep selectedSession in sync with refreshed sessions data
+  // (updates metadata like message count without re-loading conversation)
+  useEffect(() => {
+    if (!initialRestoreDone.current) return
+    setSelectedSession(prev => {
+      if (!prev) return prev
+      const updated = sessions.find(s => s.id === prev.id)
+      return updated || prev
+    })
+  }, [sessions])
 
   const handleSelectSession = useCallback((session: SessionSummary) => {
     setSelectedSession(session)
@@ -300,9 +313,19 @@ function App() {
 
             <p className="text-sm text-text-secondary mb-3 leading-relaxed">
               {confirmAction.type === 'resume'
-                ? 'This will open a new terminal window with this session.'
+                ? (!confirmAction.session.cwdExists && confirmAction.session.cwd
+                    ? 'The working directory for this session no longer exists. Resume may fail.'
+                    : 'This will open a new terminal window with this session.')
                 : 'This will move the session to trash. You can restore it later from ~/.claude/trash/.'}
             </p>
+
+            {confirmAction.type === 'resume' && !confirmAction.session.cwdExists && confirmAction.session.cwd && (
+              <div className="px-3 py-2 bg-amber-50 rounded-lg border border-amber-200 mb-3">
+                <p className="text-[11px] text-amber-700 font-mono truncate" title={confirmAction.session.cwd}>
+                  {confirmAction.session.cwd}
+                </p>
+              </div>
+            )}
 
             <div className="px-3 py-2 bg-surface rounded-lg border border-subtle mb-5">
               <p className="text-xs text-text-tertiary font-mono truncate" title={confirmAction.session.title}>

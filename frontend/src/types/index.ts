@@ -14,6 +14,7 @@ export interface SessionSummary {
   messages: number
   starred: boolean
   tags: string[]
+  cwdExists: boolean
 }
 
 export interface Conversation {

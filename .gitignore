@@ -7,6 +7,9 @@ frontend/node_modules/
 # Build output (embedded at compile time)
 frontend/dist/
 
+# Build cache
+frontend/tsconfig.tsbuildinfo
+
 # IDE
 .vscode/
 .idea/
