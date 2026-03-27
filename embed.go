@@ -10,6 +10,7 @@ import (
 )
 
 //go:embed frontend/dist/*
+//go:embed frontend/dist/assets/*
 var frontendFS embed.FS
 
 // distFS is computed once at init to avoid re-creating on every request.
