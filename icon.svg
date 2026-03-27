@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Background -->
+  <rect width="256" height="256" rx="48" fill="#1a1a1a"/>
+
+  <!-- Outer ring / history arc -->
+  <circle cx="128" cy="128" r="88" fill="none" stroke="#d97706" stroke-width="10" stroke-dasharray="440 30" stroke-dashoffset="-15" stroke-linecap="round" opacity="0.9"/>
+
+  <!-- Clock hands -->
+  <line x1="128" y1="128" x2="128" y2="72" stroke="#f59e0b" stroke-width="9" stroke-linecap="round"/>
+  <line x1="128" y1="128" x2="96" y2="148" stroke="#f59e0b" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- Center dot -->
+  <circle cx="128" cy="128" r="8" fill="#f59e0b"/>
+
+  <!-- Chat bubble - bottom right -->
+  <rect x="148" y="152" width="72" height="52" rx="12" fill="#2a2a2a" stroke="#d97706" stroke-width="4"/>
+  <polygon points="152,204 138,220 168,204" fill="#2a2a2a" stroke="#d97706" stroke-width="4" stroke-linejoin="round"/>
+
+  <!-- Chat lines -->
+  <line x1="162" y1="170" x2="206" y2="170" stroke="#f59e0b" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+  <line x1="162" y1="184" x2="194" y2="184" stroke="#f59e0b" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+</svg>
