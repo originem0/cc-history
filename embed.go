@@ -13,8 +13,10 @@ import (
 //go:embed frontend/dist/assets/*
 var frontendFS embed.FS
 
-// distFS is computed once at init to avoid re-creating on every request.
+// distFS and fileServer are computed once at init to avoid re-creating the
+// handler on every request.
 var distFS fs.FS
+var fileServer http.Handler
 
 func init() {
 	var err error
@@ -22,6 +24,7 @@ func init() {
 	if err != nil {
 		log.Fatalf("failed to create dist sub-filesystem: %v", err)
 	}
+	fileServer = http.FileServerFS(distFS)
 }
 
 func handleSPA(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +45,7 @@ func handleSPA(w http.ResponseWriter, r *http.Request) {
 	f, err := distFS.Open(urlPath)
 	if err == nil {
 		f.Close()
-		http.FileServerFS(distFS).ServeHTTP(w, r)
+		fileServer.ServeHTTP(w, r)
 		return
 	}
 
@@ -56,5 +59,5 @@ func handleSPA(w http.ResponseWriter, r *http.Request) {
 
 	// No extension → serve index.html for client-side routing
 	r.URL.Path = "/"
-	http.FileServerFS(distFS).ServeHTTP(w, r)
+	fileServer.ServeHTTP(w, r)
 }

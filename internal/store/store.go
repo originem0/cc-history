@@ -47,6 +47,11 @@ type Store struct {
 	cacheCap  int
 
 	claudeDir string
+
+	// loadMu serializes entire Load() calls. Load releases s.mu during the
+	// I/O-heavy parse, so without this two concurrent Loads (file watcher +
+	// manual reload) could interleave and corrupt project session counts.
+	loadMu sync.Mutex
 }
 
 type cacheEntry struct {
@@ -76,6 +81,9 @@ func (s *Store) Version() uint64 {
 // Load scans the claude projects directory and incrementally parses
 // only changed or new session files. Removed files are cleaned up.
 func (s *Store) Load() error {
+	s.loadMu.Lock()
+	defer s.loadMu.Unlock()
+
 	results, err := scanner.Scan(s.claudeDir)
 	if err != nil {
 		return fmt.Errorf("scanning projects: %w", err)
@@ -227,17 +235,31 @@ func (s *Store) GetCWDExists(sessionID string) bool {
 	return s.cwdExists[sess.CWD]
 }
 
-// GetProjects returns all projects sorted by path.
+// GetProjects returns all projects sorted by most-recent activity (the project
+// containing the newest session comes first), so the sidebar surfaces what the
+// user touched last instead of an alphabetical wall.
 func (s *Store) GetProjects() []parser.ProjectInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	// Most-recent session timestamp per project.
+	lastActivity := make(map[string]time.Time, len(s.projects))
+	for _, sess := range s.sessions {
+		if sess.Timestamp.After(lastActivity[sess.ProjectID]) {
+			lastActivity[sess.ProjectID] = sess.Timestamp
+		}
+	}
 
 	result := make([]parser.ProjectInfo, 0, len(s.projects))
 	for _, p := range s.projects {
 		result = append(result, *p)
 	}
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].Path < result[j].Path
+		ti, tj := lastActivity[result[i].DirName], lastActivity[result[j].DirName]
+		if ti.Equal(tj) {
+			return result[i].Path < result[j].Path // stable tiebreak
+		}
+		return ti.After(tj)
 	})
 	return result
 }

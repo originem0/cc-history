@@ -116,7 +116,7 @@ func ParseSummary(filePath string) (*SessionSummary, error) {
 	s.SearchText = strings.Join(searchParts, " ")
 
 	if s.Title == "" {
-		s.Title = "Untitled Session"
+		s.Title = fallbackTitle(s.CWD, s.Timestamp)
 	}
 
 	return s, nil
@@ -310,28 +310,69 @@ func extractText(msgRaw json.RawMessage) string {
 	return strings.Join(parts, " ")
 }
 
-// extractTitle gets a clean title from the first user message.
-// Skips /clear commands, XML-heavy messages, and truncates to reasonable length.
+// titleNoisePrefixes mark messages that are command echoes, skill injections,
+// or system wrappers — never meaningful session titles.
+var titleNoisePrefixes = []string{
+	"<command-message>",
+	"<command-name>",
+	"<local-command-caveat>",
+	"<local-command-stdout>",
+	"<local-command-stderr>",
+	"<system-reminder>",
+	"Base directory for this skill:",
+	"Caveat:",
+}
+
+// titleFiller holds greetings/continuations that are valid messages but carry
+// no distinguishing value as a title (compared lowercased).
+var titleFiller = map[string]bool{
+	"hello": true, "hi": true, "hey": true, "你好": true,
+	"开始": true, "继续": true, "go": true, "ok": true, "okay": true,
+	"start": true, "test": true, "测试": true, "嗯": true, "好": true, "好的": true,
+	"continue": true,
+}
+
+// isLowValueTitle reports whether a one-line message is too generic to serve as
+// a title: a greeting/continuation, a single character, or a bare menu number
+// (e.g. "1"/"2" answers to a prompt). Such messages signal "keep scanning".
+func isLowValueTitle(s string) bool {
+	if titleFiller[strings.ToLower(s)] {
+		return true
+	}
+	if utf8.RuneCountInString(s) <= 1 {
+		return true
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true // all digits
+}
+
+// extractTitle gets a clean title from a user message. Returns "" when the
+// message is a command, injection, or bare greeting — signaling the caller to
+// keep scanning later messages for something that actually describes the work.
 func extractTitle(text string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return ""
 	}
 
-	// Skip meta commands
-	if strings.HasPrefix(text, "/clear") || strings.HasPrefix(text, "/") {
+	// Skip slash-commands
+	if strings.HasPrefix(text, "/") {
 		return ""
 	}
 
-	// Skip if mostly XML tags (system prompts, etc.)
+	// Skip command echoes, skill injections, and system wrappers
+	for _, p := range titleNoisePrefixes {
+		if strings.HasPrefix(text, p) {
+			return ""
+		}
+	}
+
+	// Skip if mostly XML tags (system prompts, reminders, etc.)
 	if strings.Count(text, "<") > 5 && strings.Count(text, "<") > len(text)/20 {
-		return ""
-	}
-
-	// Skip command wrapper messages
-	if strings.HasPrefix(text, "<command-message>") ||
-		strings.HasPrefix(text, "<local-command-caveat>") ||
-		strings.HasPrefix(text, "<command-name>") {
 		return ""
 	}
 
@@ -354,13 +395,42 @@ func extractTitle(text string) string {
 	if idx := strings.IndexAny(text, "\n\r"); idx > 0 {
 		text = text[:idx]
 	}
+	text = strings.TrimSpace(text)
+
+	// Skip low-value titles (greetings, single chars, bare menu numbers) —
+	// keep scanning for a message that actually describes the work.
+	if isLowValueTitle(text) {
+		return ""
+	}
 
 	// Truncate to 100 runes (safe for multi-byte characters)
-	text = strings.TrimSpace(text)
 	if utf8.RuneCountInString(text) > 100 {
 		runes := []rune(text)
 		text = string(runes[:100]) + "..."
 	}
 
 	return text
+}
+
+// fallbackTitle builds a meaningful label when no message yields a title:
+// the working-directory's last path segment plus the session date. Beats a
+// generic "Untitled Session" for distinguishing sessions in the sidebar.
+func fallbackTitle(cwd string, ts time.Time) string {
+	base := ""
+	if cwd != "" {
+		// cwd is the original OS path; handle both / and \ separators.
+		norm := strings.TrimRight(strings.ReplaceAll(cwd, "\\", "/"), "/")
+		if idx := strings.LastIndex(norm, "/"); idx >= 0 {
+			base = norm[idx+1:]
+		} else {
+			base = norm
+		}
+	}
+	if base == "" {
+		base = "Session"
+	}
+	if !ts.IsZero() {
+		return base + " · " + ts.Format("01-02 15:04")
+	}
+	return base
 }

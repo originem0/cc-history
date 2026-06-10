@@ -39,10 +39,6 @@ func (s *Store) Search(query string, limit int) []SearchResult {
 	results := make([]SearchResult, 0)
 
 	for _, sess := range s.sessions {
-		if len(results) >= limit {
-			break
-		}
-
 		matched, snippet := matchSession(sess, query, queryLower)
 		if matched {
 			results = append(results, SearchResult{
@@ -56,10 +52,16 @@ func (s *Store) Search(query string, limit int) []SearchResult {
 		}
 	}
 
-	// Sort by timestamp descending (most recent first)
+	// Sort by timestamp descending, THEN truncate. Truncating mid-scan (the old
+	// behavior) returned an arbitrary subset in map-iteration order — it could
+	// drop the most recent matches when total matches exceeded the limit.
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].timestamp.After(results[j].timestamp)
 	})
+
+	if len(results) > limit {
+		results = results[:limit]
+	}
 
 	return results
 }

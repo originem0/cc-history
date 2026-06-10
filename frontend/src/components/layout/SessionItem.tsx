@@ -12,6 +12,30 @@ const StarIcon = ({ filled }: { filled: boolean }) => (
   </svg>
 )
 
+// relativeTime renders a compact "how long ago" label so same-named sessions
+// (e.g. lots of "hello"/"开始") stay distinguishable in the sidebar.
+function relativeTime(ts: string): string {
+  const t = new Date(ts).getTime()
+  if (isNaN(t)) return ''
+  const m = Math.floor((Date.now() - t) / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  const d = Math.floor(h / 24)
+  if (d < 30) return `${d}d ago`
+  const mo = Math.floor(d / 30)
+  if (mo < 12) return `${mo}mo ago`
+  return `${Math.floor(mo / 12)}y ago`
+}
+
+// shortPath keeps the last two path segments for a compact cwd display.
+function shortPath(p: string): string {
+  if (!p) return ''
+  const segs = p.replace(/\\/g, '/').split('/').filter(Boolean)
+  return segs.slice(-2).join('/')
+}
+
 interface SessionItemProps {
   session: SessionSummary
   isSelected: boolean
@@ -48,11 +72,17 @@ export function SessionItem({ session, isSelected, isFocused, showProject, onSel
           )}
           <span className="truncate">{session.title}</span>
         </div>
-        {showProject && (
-          <div className="text-[10px] text-text-tertiary mt-0.5 truncate font-mono">
-            {session.cwd || session.project}
-          </div>
-        )}
+        <div className="text-[10px] text-text-tertiary mt-0.5 flex items-center gap-1.5 font-mono overflow-hidden">
+          <span className="shrink-0 whitespace-nowrap">{relativeTime(session.timestamp)}</span>
+          <span className="shrink-0 opacity-40">·</span>
+          <span className="shrink-0 whitespace-nowrap">{session.messages} msg</span>
+          {showProject && (session.cwd || session.project) && (
+            <>
+              <span className="shrink-0 opacity-40">·</span>
+              <span className="truncate">{shortPath(session.cwd || session.project)}</span>
+            </>
+          )}
+        </div>
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onToggleStar(session.id) }}

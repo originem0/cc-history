@@ -149,7 +149,7 @@ func main() {
 	ln := findAvailableListener(3456)
 	addr := ln.Addr().String()
 
-	server := &http.Server{Handler: mux}
+	server := &http.Server{Handler: localhostOnly(mux)}
 
 	log.Printf("starting server at http://%s", addr)
 
@@ -738,6 +738,39 @@ func writeJSON(w http.ResponseWriter, data interface{}) {
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		log.Printf("json encode error: %v", err)
 	}
+}
+
+// localhostOnly rejects requests whose Host header is not a loopback address.
+// This is the primary defense against DNS-rebinding: we bind to 127.0.0.1, but
+// a malicious page can rebind its own domain to 127.0.0.1 and reach us with its
+// Origin intact — CORS doesn't apply because the browser thinks it's same-origin.
+// Validating Host (and Origin when present) closes that hole entirely.
+func localhostOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		if !isLoopbackHost(host) {
+			http.Error(w, "forbidden: invalid host", http.StatusForbidden)
+			return
+		}
+		// If an Origin is present (cross-site / scripted requests), require it
+		// to also be loopback. Same-origin GET navigations from our own UI send
+		// no Origin, so this only tightens the scripted-request path.
+		if origin := r.Header.Get("Origin"); origin != "" {
+			u, err := url.Parse(origin)
+			if err != nil || !isLoopbackHost(u.Hostname()) {
+				http.Error(w, "forbidden: invalid origin", http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isLoopbackHost(h string) bool {
+	return h == "127.0.0.1" || h == "localhost" || h == "::1"
 }
 
 // findAvailableListener tries ports starting from base, up to base+10.

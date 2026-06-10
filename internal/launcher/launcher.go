@@ -28,8 +28,12 @@ func Resume(sessionID, cwd string) error {
 		return cmd.Start()
 	}
 
-	// Fallback to cmd.exe — quote sessionID to prevent injection
-	cmd := exec.Command("cmd.exe", "/c", "start", "cmd", "/k",
-		fmt.Sprintf("cd /d %q && claude --resume %q", cwd, sessionID))
+	// Fallback to cmd.exe. Pass cwd via cmd.Dir (never interpolated into the
+	// command line) and sessionID as a discrete arg. cmd's quoting rules differ
+	// from Go's %q and don't escape & | ^ %, so the old fmt.Sprintf("cd /d %q ...")
+	// was an injection vector for any cwd containing those characters.
+	// The empty "" is start's mandatory window-title argument.
+	cmd := exec.Command("cmd.exe", "/c", "start", "", "cmd", "/k", "claude", "--resume", sessionID)
+	cmd.Dir = cwd
 	return cmd.Start()
 }

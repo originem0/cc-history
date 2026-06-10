@@ -186,7 +186,7 @@ export function Sidebar({ projects, sessions, selectedId, focusedId, activeTab, 
                 focusedId={focusedId}
                 onSelect={onSelect}
                 onToggleStar={onToggleStar}
-                defaultExpanded={projects.length <= 5}
+                defaultExpanded={true}
               />
             ))
           )
